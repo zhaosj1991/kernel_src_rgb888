@@ -9,7 +9,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-//#define DEBUG
+#define DEBUG
 #include <linux/atomic.h>
 #include <linux/bitmap.h>
 #include <linux/clk.h>

@@ -57,6 +57,12 @@ static const struct camera_common_colorfmt camera_common_color_fmts[] = {
 		V4L2_COLORSPACE_SRGB,
 		V4L2_PIX_FMT_SRGGB8,
 	},
+	// zsj
+	{
+		MEDIA_BUS_FMT_RBG888_1X24,
+		V4L2_COLORSPACE_SRGB,
+		V4L2_PIX_FMT_RGB24,
+	},
 	/*
 	 * The below two formats are not supported by VI4,
 	 * keep them at the last to ensure they get discarded
