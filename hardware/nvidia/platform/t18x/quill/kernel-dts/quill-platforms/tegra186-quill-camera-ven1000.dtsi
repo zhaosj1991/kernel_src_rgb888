@@ -14,7 +14,7 @@
 					reg = <0>;
 					ecam_vi_in0: endpoint {
 						csi-port = <0>;
-						bus-width = <1>;
+						bus-width = <2>;
 						remote-endpoint = <&ecam_csi_out0>;
 					};
 				};
@@ -34,7 +34,7 @@
 						reg = <0>;
 						ecam_csi_in0: endpoint@0 {
 							csi-port = <0>;
-							bus-width = <1>;
+							bus-width = <2>;
 							remote-endpoint = <&ecam_ven1000_out0>;
 						};
 					};
@@ -82,7 +82,7 @@
 					reg = <0>;
 					ecam_ven1000_out0: endpoint {
 						csi-port = <0>;
-						bus-width = <1>;
+						bus-width = <2>;
 						remote-endpoint = <&ecam_csi_in0>;
 					};
 				};
