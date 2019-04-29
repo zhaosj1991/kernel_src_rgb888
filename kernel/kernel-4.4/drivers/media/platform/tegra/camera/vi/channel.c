@@ -421,8 +421,8 @@ tegra_channel_queue_setup(struct vb2_queue *vq, const void *parg,
 	alloc_ctxs[0] = chan->alloc_ctx;
 
 	/* Make sure minimum number of buffers are passed */
-	//if (*nbuffers < (QUEUED_BUFFERS - 1))
-		//*nbuffers = QUEUED_BUFFERS - 1;
+	if (*nbuffers < (QUEUED_BUFFERS - 1))
+		*nbuffers = QUEUED_BUFFERS - 1;
 
 	return 0;
 }
