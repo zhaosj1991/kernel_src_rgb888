@@ -613,6 +613,49 @@ static void tegra_channel_stop_streaming(struct vb2_queue *vq)
 	queue_init_ts = 0;
 }
 
+int fail_num = 0;
+int pass_num = 0;
+static void galaxy_channel_buf_finish(struct vb2_buffer *vb)
+{
+	void *void_data = NULL;
+	char *img_data = NULL;
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	void *buf = vb->planes[0].mem_priv;
+	buf = buf + sizeof(void *);
+//	char *img_data = (char *)(vb->planes[0].mem_priv + vb->planes[0].data_offset);
+	void_data = (void *)(*((void **)buf));
+	img_data = (char *)void_data;
+	if (vbuf->sequence < 10000)
+	{
+		// printk("img_data = %p\n", img_data);
+		// printk("galaxy_channel_buf_finish vbuf.sequence = 0x%x\n", vbuf->sequence);
+		// printk("galaxy_channel_buf_finish vb.num_planes = 0x%x\n", vb->num_planes);
+		// printk("galaxy_channel_buf_finish vvb->planes[0].offset = %d\n", vb->planes[0].m.offset);
+		// printk("galaxy_channel_buf_finish vb->planes[0].data_offset = %d\n", vb->planes[0].data_offset);
+		// printk("galaxy_channel_buf_finish img_data = 0x%x\n", *img_data);
+		// printk("galaxy_channel_buf_finish img_data+1 = 0x%x\n", *(img_data+1));
+		// printk("galaxy_channel_buf_finish img_data+2 = 0x%x\n", *(img_data+2));
+		// printk("galaxy_channel_buf_finish img_data+3 = 0x%x\n", *(img_data+3));
+
+		// printk("galaxy_channel_buf_finish img_data+100 = 0x%x\n", *(img_data+100));
+		// printk("galaxy_channel_buf_finish img_data+101 = 0x%x\n", *(img_data+101));
+		// printk("galaxy_channel_buf_finish img_data+102 = 0x%x\n", *(img_data+102));
+		// printk("galaxy_channel_buf_finish img_data+103 = 0x%x\n", *(img_data+103));
+		if ((*(img_data)==0x01) && (*(img_data+1)==0x02) && (*(img_data+2)==0x04) && (*(img_data+3)==0xff))
+		{
+			pass_num++;
+		}
+		else
+		{
+			fail_num++;
+		}
+		if (vbuf->sequence % 100 == 0)
+		{
+			printk("pass_num = %d, fail_num = %d\n", pass_num, fail_num);
+		}
+	}	
+}
+
 static const struct vb2_ops tegra_channel_queue_qops = {
 	.queue_setup = tegra_channel_queue_setup,
 	.buf_prepare = tegra_channel_buffer_prepare,
@@ -621,6 +664,7 @@ static const struct vb2_ops tegra_channel_queue_qops = {
 	.wait_finish = vb2_ops_wait_finish,
 	.start_streaming = tegra_channel_start_streaming,
 	.stop_streaming = tegra_channel_stop_streaming,
+	.buf_finish = galaxy_channel_buf_finish,
 };
 
 /* -----------------------------------------------------------------------------
