@@ -619,12 +619,15 @@ static void galaxy_channel_buf_finish(struct vb2_buffer *vb)
 {
 	void *void_data = NULL;
 	char *img_data = NULL;
+	unsigned long size = 0;
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	void *buf = vb->planes[0].mem_priv;
 	buf = buf + sizeof(void *);
 //	char *img_data = (char *)(vb->planes[0].mem_priv + vb->planes[0].data_offset);
 	void_data = (void *)(*((void **)buf));
 	img_data = (char *)void_data;
+	size = *((unsigned long *)(buf + sizeof(void *)));
+	
 	if (vbuf->sequence < 10000)
 	{
 		// printk("img_data = %p\n", img_data);
@@ -641,7 +644,10 @@ static void galaxy_channel_buf_finish(struct vb2_buffer *vb)
 		// printk("galaxy_channel_buf_finish img_data+101 = 0x%x\n", *(img_data+101));
 		// printk("galaxy_channel_buf_finish img_data+102 = 0x%x\n", *(img_data+102));
 		// printk("galaxy_channel_buf_finish img_data+103 = 0x%x\n", *(img_data+103));
-		if ((*(img_data)==0x01) && (*(img_data+1)==0x02) && (*(img_data+2)==0x04) && (*(img_data+3)==0xff))
+
+		if ((*(img_data)==0x01) && (*(img_data+1)==0x02) && (*(img_data+2)==0x04) && (*(img_data+3)==0xff) &&
+			(*(img_data+size-4)==0x01) && (*(img_data+size-3)==0x02) && (*(img_data+size-2)==0x04) && (*(img_data+size-1)==0xff) &&
+			(*(img_data+size-8)==0x01) && (*(img_data+size-7)==0x02) && (*(img_data+size-6)==0x04) && (*(img_data+size-5)==0xff))
 		{
 			pass_num++;
 		}
@@ -1690,6 +1696,7 @@ int tegra_channel_init(struct tegra_channel *chan)
 	chan->width_align = TEGRA_WIDTH_ALIGNMENT;
 	chan->stride_align = TEGRA_STRIDE_ALIGNMENT;
 	chan->num_subdevs = 0;
+	chan->timeout = 20;
 	mutex_init(&chan->video_lock);
 	INIT_LIST_HEAD(&chan->capture);
 	INIT_LIST_HEAD(&chan->entities);

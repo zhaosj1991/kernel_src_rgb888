@@ -173,8 +173,8 @@ static bool vi4_check_status(struct tegra_channel *chan)
 	return true;
 }
 
-static bool vi_notify_wait(struct tegra_channel *chan,
-		struct timespec *ts)
+static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf, 
+	struct timespec *ts)
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
@@ -186,9 +186,13 @@ static bool vi_notify_wait(struct tegra_channel *chan,
 	 * even if we are not waiting for ATOMP_FE here
 	 */
 	for (i = 0; i < chan->valid_ports; i++)
+	{
 		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
 					chan->syncpt[i][FE_SYNCPT_IDX], 1);
-
+		memcpy(&buf->thresh[0], &temp,
+                        TEGRA_CSI_BLOCKS * sizeof(u32));
+	}
+		
 	/*
 	 * Increment syncpt for PXL_SOF
 	 *
@@ -542,7 +546,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, &ts);
+	vi_notify_wait(chan, buf, &ts);
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
 
