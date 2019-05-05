@@ -1646,6 +1646,7 @@ int tegra_channel_init(struct tegra_channel *chan)
 	chan->width_align = TEGRA_WIDTH_ALIGNMENT;
 	chan->stride_align = TEGRA_STRIDE_ALIGNMENT;
 	chan->num_subdevs = 0;
+	chan->timeout = 20;
 	mutex_init(&chan->video_lock);
 	INIT_LIST_HEAD(&chan->capture);
 	INIT_LIST_HEAD(&chan->entities);
