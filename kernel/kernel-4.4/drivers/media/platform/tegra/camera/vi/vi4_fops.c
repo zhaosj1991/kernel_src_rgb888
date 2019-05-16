@@ -210,7 +210,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	for (i = 0; i < chan->valid_ports; i++) {
 		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
 				chan->syncpt[i][SOF_SYNCPT_IDX], thresh[i],
-				250, NULL, NULL);
+				chan->timeout, NULL, NULL);
 		if (unlikely(err))
 			dev_err(chan->vi->dev,
 				"PXL_SOF syncpt timeout! err = %d\n", err);
@@ -677,7 +677,7 @@ static void tegra_channel_capture_done(struct tegra_channel *chan)
 			err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
 					chan->syncpt[i][FE_SYNCPT_IDX],
 					index,
-					250, NULL, NULL);
+					chan->timeout, NULL, NULL);
 			if (unlikely(err))
 				dev_err(chan->vi->dev, "ATOMP_FE syncpt timeout!\n");
 			else {
