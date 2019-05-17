@@ -490,6 +490,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	vi4_channel_write(chan, vnc_id, ATOMP_DPCM_CHUNK, 0x0);
 	vi4_channel_write(chan, vnc_id, ISPBUFA, 0x0);
 	vi4_channel_write(chan, vnc_id, LINE_TIMER, 0x1000000);
+	vi4_channel_write(chan, vnc_id, NOTIFY_MASK_XCPT, MASK_STALE_FRAME);
 	if (chan->embedded_data_height > 0) {
 		vi4_channel_write(chan, vnc_id, EMBED_X,
 			chan->embedded_data_width * BPP_MEM);
