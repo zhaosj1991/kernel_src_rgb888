@@ -23,6 +23,8 @@
 #include "vi4_formats.h"
 #include "vi/vi_notify.h"
 #include <media/sensor_common.h>
+#include<linux/ktime.h>
+
 
 #define DEFAULT_FRAMERATE	30
 #define BPP_MEM		2
@@ -174,7 +176,7 @@ static bool vi4_check_status(struct tegra_channel *chan)
 }
 
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
-	struct timespec *ts)
+	struct timespec *ts, s64 elapsed_ns)
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
@@ -211,9 +213,11 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
 				chan->syncpt[i][SOF_SYNCPT_IDX], thresh[i],
 				chan->timeout, NULL, NULL);
-		if (unlikely(err))
+		if (unlikely(err)){
 			dev_err(chan->vi->dev,
 				"PXL_SOF syncpt timeout! err = %d\n", err);
+			printk("vi_notify_wait, elapsed_ns = %lld ns\n", elapsed_ns);
+		}
 		else {
 			struct vi_capture_status status;
 
@@ -523,6 +527,10 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	static int j = 0;
+	static ktime_t time_start;
+	ktime_t time_current;
+	s64 elapsed_ns=0;
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
@@ -536,7 +544,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		if (err < 0)
 			return err;
 	}
-
+	
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
 		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
@@ -544,8 +552,16 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
 
+	time_current = ktime_get();
+	elapsed_ns = ktime_to_ns(ktime_sub(time_current, time_start));
+	if (j % 500 == 0){
+		printk("j = %d, elapsed_ns = %lld ns\n", j, elapsed_ns);
+	}
+	j++;
+
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf, &ts);
+	vi_notify_wait(chan, buf, &ts, elapsed_ns);
+	time_start = ktime_get();
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
 
@@ -704,11 +720,28 @@ static int tegra_channel_kthread_capture_start(void *data)
 	struct tegra_channel *chan = data;
 	struct tegra_channel_buffer *buf;
 	int err = 0;
+	static int s_count = 0;
+	int capture_count = 0;
+	int release_count = 0;
+	struct list_head *capture_list = NULL;
+	struct list_head *release_list = NULL;
 
 	set_freezable();
 
 	while (1) {
 
+		if (s_count % 500 == 0){
+			capture_count = 0;
+			release_count = 0;
+			list_for_each(capture_list, &(chan->capture))
+				capture_count++;
+			list_for_each(release_list, &(chan->release))
+				release_count++;
+			printk("capture_list_num = %d  release_list_num = %d\n", capture_count, release_count);
+			
+		}
+		s_count++;
+		
 		try_to_freeze();
 
 		wait_event_interruptible(chan->start_wait,
