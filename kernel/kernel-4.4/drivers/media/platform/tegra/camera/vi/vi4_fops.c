@@ -176,7 +176,7 @@ static bool vi4_check_status(struct tegra_channel *chan)
 }
 
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
-	struct timespec *ts, s64 elapsed_ns)
+	struct timespec *ts, s64 elapsed_ns, s64 bufwait_ns)
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
@@ -216,7 +216,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		if (unlikely(err)){
 			dev_err(chan->vi->dev,
 				"PXL_SOF syncpt timeout! err = %d\n", err);
-			printk("vi_notify_wait, elapsed_ns = %lld ns\n", elapsed_ns);
+			printk("vi_notify_wait, elapsed_ns = %lld ns  bufwait_ns= %lld ns\n", elapsed_ns, bufwait_ns);
 		}
 		else {
 			struct vi_capture_status status;
@@ -494,6 +494,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	vi4_channel_write(chan, vnc_id, ATOMP_DPCM_CHUNK, 0x0);
 	vi4_channel_write(chan, vnc_id, ISPBUFA, 0x0);
 	vi4_channel_write(chan, vnc_id, LINE_TIMER, 0x1000000);
+	vi4_channel_write(chan, vnc_id, NOTIFY_MASK_XCPT, MASK_STALE_FRAME);
 	if (chan->embedded_data_height > 0) {
 		vi4_channel_write(chan, vnc_id, EMBED_X,
 			chan->embedded_data_width * BPP_MEM);
@@ -519,7 +520,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 }
 
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
-					struct tegra_channel_buffer *buf)
+					struct tegra_channel_buffer *buf, s64 bufwait_ns)
 {
 	struct timespec ts;
 	unsigned long flags;
@@ -560,7 +561,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	j++;
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf, &ts, elapsed_ns);
+	vi_notify_wait(chan, buf, &ts, elapsed_ns, bufwait_ns);
 	time_start = ktime_get();
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
@@ -725,6 +726,9 @@ static int tegra_channel_kthread_capture_start(void *data)
 	int release_count = 0;
 	struct list_head *capture_list = NULL;
 	struct list_head *release_list = NULL;
+	static ktime_t time_start;
+	ktime_t time_current;
+	s64 bufwait_ns = 0;
 
 	set_freezable();
 
@@ -743,10 +747,12 @@ static int tegra_channel_kthread_capture_start(void *data)
 		s_count++;
 		
 		try_to_freeze();
-
+		time_start = ktime_get();
 		wait_event_interruptible(chan->start_wait,
 					 !list_empty(&chan->capture) ||
 					 kthread_should_stop());
+		time_current = ktime_get();
+		bufwait_ns = ktime_to_ns(ktime_sub(time_current, time_start));
 
 		if (kthread_should_stop())
 			break;
@@ -759,8 +765,8 @@ static int tegra_channel_kthread_capture_start(void *data)
 		buf = dequeue_buffer(chan);
 		if (!buf)
 			continue;
-
-		err = tegra_channel_capture_frame(chan, buf);
+		
+		err = tegra_channel_capture_frame(chan, buf, bufwait_ns);
 	}
 
 	return 0;
