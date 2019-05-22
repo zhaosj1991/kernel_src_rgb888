@@ -173,6 +173,10 @@ static ktime_t surface_point6;
 static ktime_t surface_point7;
 static ktime_t surface_point8;
 
+static ktime_t release_point0;
+static ktime_t release_point1;
+
+
 static bool vi4_init(struct tegra_channel *chan)
 {
 	vi4_write(chan, NOTIFY_ERROR, 0x1);
@@ -272,6 +276,8 @@ surface_point7 = %lld ns surface_point8 = %lld ns \n",
 								ktime_to_ns(ktime_sub(surface_point6, surface_point5)),
 								ktime_to_ns(ktime_sub(surface_point7, surface_point6)),
 								ktime_to_ns(ktime_sub(surface_point8, surface_point7)));
+
+printk("PXL_SOF release_buffer time = %lld ns\n", ktime_to_ns(ktime_sub(release_point1, release_point0)));
 
 		}
 		else {
@@ -666,6 +672,8 @@ surface_point7 = %lld ns surface_point8 = %lld ns \n",
 								ktime_to_ns(ktime_sub(surface_point6, surface_point5)),
 								ktime_to_ns(ktime_sub(surface_point7, surface_point6)),
 								ktime_to_ns(ktime_sub(surface_point8, surface_point7)));
+printk("release_buffer time = %lld ns\n", ktime_to_ns(ktime_sub(release_point1, release_point0)));
+
 	}
 	j++;
 
@@ -752,7 +760,9 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 		 */
 		atomic_inc(&chan->restart_version);
 	}
+	release_point0 = ktime_get();
 	release_buffer(chan, buf);
+	release_point1 = ktime_get();
 }
 
 static int tegra_channel_stop_increments(struct tegra_channel *chan)
@@ -837,11 +847,11 @@ static int tegra_channel_kthread_capture_start(void *data)
 	struct tegra_channel *chan = data;
 	struct tegra_channel_buffer *buf;
 	int err = 0;
-	static int s_count = 0;
-	int capture_count = 0;
-	int release_count = 0;
-	struct list_head *capture_list = NULL;
-	struct list_head *release_list = NULL;
+	//static int s_count = 0;
+	//int capture_count = 0;
+	//int release_count = 0;
+	//struct list_head *capture_list = NULL;
+	//struct list_head *release_list = NULL;
 	s64 bufwait_ns = 0;
 
 	set_freezable();
@@ -862,7 +872,7 @@ static int tegra_channel_kthread_capture_start(void *data)
 		}
 		s_count++;*/
 		
-		//try_to_freeze();
+		try_to_freeze();
 		time_point4 = ktime_get();
 		wait_event_interruptible(chan->start_wait,
 					 !list_empty(&chan->capture) ||
