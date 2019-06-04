@@ -57,7 +57,7 @@
 		ar0521@6c {
 			status = "okay";
 			compatible = "daheng,ar0521";
-			reg = <0x6c>;
+			reg = <0x36>;
 
 			/* V4L2 device node location */
 			devnode = "video0";
