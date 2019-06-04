@@ -1,0 +1,173 @@
+/* Econ device tree for ar0521 support */
+#include <dt-bindings/media/camera.h>
+#include <dt-bindings/platform/t210/t210.h>
+#include "dt-bindings/clock/tegra186-clock.h"
+
+/ {
+	host1x {
+		vi@15700000 {
+			num-channels = <1>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					ar0521_vi_in0: endpoint {
+						csi-port = <0>;
+						bus-width = <4>;
+						remote-endpoint = <&ar0521_csi_out0>;
+					};
+				};
+			};
+		};
+
+		nvcsi@150c0000 {
+			num-channels = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			channel@0 {
+				reg = <0>;
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					port@0 {
+						reg = <0>;
+						ar0521_csi_in0: endpoint@0 {
+							csi-port = <0>;
+							bus-width = <4>;
+							remote-endpoint = <&ar0521_out0>;
+						};
+					};
+					port@1 {
+						reg = <1>;
+						ar0521_csi_out0: endpoint@1 {
+							remote-endpoint = <&ar0521_vi_in0>;
+						};
+					};
+				};
+			};
+		};
+
+	};
+
+	i2c@3180000 {
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		ar0521@6c {
+			status = "okay";
+			compatible = "daheng,ar0521";
+			reg = <0x6c>;
+
+			/* V4L2 device node location */
+			devnode = "video0";
+
+			sensor_model ="ar0521";
+			avdd-reg = "vana";
+			iovdd-reg = "vif";
+			post_crop_frame_drop = "0";
+			clocks = <&tegra_car TEGRA186_CLK_EXTPERIPH1>,
+					 <&tegra_car TEGRA186_CLK_PLLP_OUT0>;
+			clock-names = "extperiph1", "pllp_grtba";
+			mclk = "extperiph1";
+			clock-frequency = <24000000>;
+			reset-gpios = <&tegra_main_gpio CAM0_RST_L GPIO_ACTIVE_HIGH>;
+			pwdn-gpios = <&tegra_main_gpio CAM0_PWDN GPIO_ACTIVE_HIGH>; 
+			vana-supply = <&en_vdd_cam_hv_2v8>;
+			vif-supply = <&en_vdd_cam>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					ar0521_out0: endpoint {
+						csi-port = <0>;
+						bus-width = <4>;
+						remote-endpoint = <&ar0521_csi_in0>;
+					};
+				};
+			};
+
+			/* mode0 { 	// MODE_2592X1944
+						mclk_khz = "24000";
+						num_lanes = "1";
+						tegra_sinterface = "serial_a";
+						discontinuous_clk = "no";
+						dpcm_enable = "false";
+						cil_settletime = "0";
+
+						active_w = "256";
+						active_h = "256";
+						pixel_t = "bayer_bggr";
+						readout_orientation = "90";
+						line_length = "256";
+						inherent_gain = "1";
+						mclk_multiplier = "6.67";
+						pix_clk_hz = "160000000";
+
+						min_gain_val = "1.0";
+						max_gain_val = "16";
+						min_hdr_ratio = "1";
+						max_hdr_ratio = "64";
+						min_framerate = "1.816577";
+						max_framerate = "30";
+						min_exp_time = "34";
+						max_exp_time = "550385";
+					};
+
+					mode1 { // MODE_2592X1458
+						mclk_khz = "24000";
+						num_lanes = "2";
+						tegra_sinterface = "serial_b";
+						discontinuous_clk = "no";
+						dpcm_enable = "false";
+						cil_settletime = "0";
+
+						active_w = "2592";
+						active_h = "1458";
+						pixel_t = "bayer_bggr";
+						readout_orientation = "90";
+						line_length = "2688";
+						inherent_gain = "1";
+						mclk_multiplier = "6.67";
+						pix_clk_hz = "160000000";
+
+						min_gain_val = "1.0";
+						max_gain_val = "16";
+						min_hdr_ratio = "1";
+						max_hdr_ratio = "64";
+						min_framerate = "1.816577";
+						max_framerate = "30";
+						min_exp_time = "34";
+						max_exp_time = "550385";
+					}; */
+		};
+	};
+
+	tegra-camera-platform {
+		compatible = "nvidia, tegra-camera-platform";
+		modules {
+			module0 {
+				badge = "daheng_ar0521";
+				position = "rear";
+				orientation = "1";
+				drivernode0 {
+					pcl_id = "v4l2_sensor";
+					devname = "AR-0521";
+					proc-device-tree = "/proc/device-tree/i2c@3180000/ar0521@6c";
+					status = "okay";
+				};
+			};
+		};
+	};
+
+	gpio@2200000 {
+		camera-control-output-low {
+			gpio-hog;
+			output-low;
+			gpios = <CAM0_RST_L 0 CAM0_PWDN 0>;
+			label = "cam0-rst", "cam0-pwdn";
+		};
+	};
+
+};
