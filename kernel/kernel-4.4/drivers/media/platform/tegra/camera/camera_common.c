@@ -34,7 +34,7 @@
 	(has_s_op(master, op) ? \
 	 master->ops->op(master, __VA_ARGS__) : 0)
 
-#define HDR_ENABLE		0x1
+#define HDR_ENABLE		0x0
 
 static const struct camera_common_colorfmt camera_common_color_fmts[] = {
 	{

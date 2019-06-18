@@ -70,7 +70,7 @@
 					 <&tegra_car TEGRA186_CLK_PLLP_OUT0>;
 			clock-names = "extperiph1", "pllp_grtba";
 			mclk = "extperiph1";
-			clock-frequency = <24000000>;
+			clock-frequency = <27000000>;
 			reset-gpios = <&tegra_main_gpio CAM0_RST_L GPIO_ACTIVE_HIGH>;
 			pwdn-gpios = <&tegra_main_gpio CAM0_PWDN GPIO_ACTIVE_HIGH>; 
 			vana-supply = <&en_vdd_cam_hv_2v8>;
@@ -88,7 +88,82 @@
 				};
 			};
 
-			/* mode0 { 	// MODE_2592X1944
+			/**
+			* A modeX node is required to support v4l2 driver
+			* implementation with NVIDIA camera software stack
+			*
+			* mclk_khz = "";
+			* Standard MIPI driving clock, typically 24MHz
+			*
+			* num_lanes = "";
+			* Number of lane channels sensor is programmed to output
+			*
+			* tegra_sinterface = "";
+			* The base tegra serial interface lanes are connected to
+			*
+			* discontinuous_clk = "";
+			* The sensor is programmed to use a discontinuous clock on MIPI lanes
+			*
+			* dpcm_enable = "true";
+			* The sensor is programmed to use a DPCM modes
+			*
+			* cil_settletime = "";
+			* MIPI lane settle time value.
+			* A "0" value attempts to autocalibrate based on mclk_multiplier
+			*
+			*
+			*
+			*
+			* active_w = "";
+			* Pixel active region width
+			*
+			* active_h = "";
+			* Pixel active region height
+			*
+			* pixel_t = "";
+			* The sensor readout pixel pattern
+			*
+			* readout_orientation = "0";
+			* Based on camera module orientation.
+			* Only change readout_orientation if you specifically
+			* Program a different readout order for this mode
+			*
+			* line_length = "";
+			* Pixel line length (width) for sensor mode.
+			* This is used to calibrate features in our camera stack.
+			*
+			* mclk_multiplier = "";
+			* Multiplier to MCLK to help time hardware capture sequence
+			* TODO: Assign to PLL_Multiplier as well until fixed in core
+			*
+			* pix_clk_hz = "";
+			* Sensor pixel clock used for calculations like exposure and framerate
+			*
+			*
+			*
+			*
+			* inherent_gain = "";
+			* Gain obtained inherently from mode (ie. pixel binning)
+			*
+			* min_gain_val = ""; (floor to 6 decimal places)
+			* max_gain_val = ""; (floor to 6 decimal places)
+			* Gain limits for mode
+			*
+			* min_exp_time = ""; (ceil to integer)
+			* max_exp_time = ""; (ceil to integer)
+			* Exposure Time limits for mode (us)
+			*
+			*
+			* min_hdr_ratio = "";
+			* max_hdr_ratio = "";
+			* HDR Ratio limits for mode
+			*
+			* min_framerate = "";
+			* max_framerate = "";
+			* Framerate limits for mode (fps)
+			*/
+
+			 mode0 { 	// MODE_2592X1944
 						mclk_khz = "24000";
 						num_lanes = "1";
 						tegra_sinterface = "serial_a";
@@ -96,35 +171,8 @@
 						dpcm_enable = "false";
 						cil_settletime = "0";
 
-						active_w = "256";
-						active_h = "256";
-						pixel_t = "bayer_bggr";
-						readout_orientation = "90";
-						line_length = "256";
-						inherent_gain = "1";
-						mclk_multiplier = "6.67";
-						pix_clk_hz = "160000000";
-
-						min_gain_val = "1.0";
-						max_gain_val = "16";
-						min_hdr_ratio = "1";
-						max_hdr_ratio = "64";
-						min_framerate = "1.816577";
-						max_framerate = "30";
-						min_exp_time = "34";
-						max_exp_time = "550385";
-					};
-
-					mode1 { // MODE_2592X1458
-						mclk_khz = "24000";
-						num_lanes = "2";
-						tegra_sinterface = "serial_b";
-						discontinuous_clk = "no";
-						dpcm_enable = "false";
-						cil_settletime = "0";
-
 						active_w = "2592";
-						active_h = "1458";
+						active_h = "1944";
 						pixel_t = "bayer_bggr";
 						readout_orientation = "90";
 						line_length = "2688";
@@ -140,7 +188,34 @@
 						max_framerate = "30";
 						min_exp_time = "34";
 						max_exp_time = "550385";
-					}; */
+					};
+
+			mode1 { // MODE_1920X1080
+						mclk_khz = "24000";
+						num_lanes = "4";
+						tegra_sinterface = "serial_a";
+						discontinuous_clk = "no";
+						dpcm_enable = "false";
+						cil_settletime = "0";
+
+						active_w = "1920";
+						active_h = "1080";
+						pixel_t = "bayer_bggr";
+						readout_orientation = "90";
+						line_length = "2300";
+						inherent_gain = "1";
+						mclk_multiplier = "6.67";
+						pix_clk_hz = "160000000";
+
+						min_gain_val = "1.0";
+						max_gain_val = "16";
+						min_hdr_ratio = "1";
+						max_hdr_ratio = "64";
+						min_framerate = "1.816577";
+						max_framerate = "100";
+						min_exp_time = "34";
+						max_exp_time = "550385";
+					}; 
 		};
 	};
 
