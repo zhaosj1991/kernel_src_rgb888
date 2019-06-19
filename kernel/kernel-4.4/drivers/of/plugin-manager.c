@@ -13,6 +13,7 @@
  * more details.
  */
 
+#define DEBUG
 #include <linux/init.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>
