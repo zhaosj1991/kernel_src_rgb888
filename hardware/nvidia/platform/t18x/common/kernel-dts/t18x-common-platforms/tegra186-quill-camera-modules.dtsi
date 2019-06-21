@@ -12,7 +12,6 @@
  *
  */
 
-#include "t18x-common-platforms/tegra186-quill-camera-ar0521-a00.dtsi"
 #include "t18x-common-platforms/tegra186-quill-camera-e3326-a00.dtsi"
 #include "t18x-common-platforms/tegra186-quill-camera-e3323-a00.dtsi"
 #include "t18x-common-platforms/tegra186-quill-camera-e3333-a00.dtsi"
@@ -199,9 +198,6 @@
 	};
 
 	i2c@3180000 {
-		ar0521_cam0: ar0521@36 {
-			status = "disabled";
-		};
 		e3326_cam0: ov5693_c@36 {
 			status = "disabled";
 		};
