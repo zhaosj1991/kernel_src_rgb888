@@ -571,6 +571,98 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	return 0;
 }
 
+static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
+					struct tegra_channel_buffer *buf1, struct tegra_channel_buffer *buf2)
+{
+	struct timespec ts;
+	unsigned long flags;
+	bool is_streaming = atomic_read(&chan->is_streaming);
+	int restart_version = 0;
+	int err = false;
+	int i;
+
+	for (i = 0; i < chan->valid_ports; i++)
+		tegra_channel_surface_setup(chan, buf1, i);
+
+	restart_version = atomic_read(&chan->restart_version);
+	if (!is_streaming ||
+		restart_version != chan->capture_version) {
+
+		chan->capture_version = restart_version;
+		err = tegra_channel_set_stream(chan, true);
+		if (err < 0)
+			return err;
+	}
+
+	for (i = 0; i < chan->valid_ports; i++) {
+		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+		vi4_channel_write(chan, chan->vnc_id[i],
+			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
+
+	/* wait for vi notifier events */
+	vi_notify_wait(chan, buf1, &ts);
+	dev_dbg(&chan->video.dev,
+		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf1);
+
+	for (i = 0; i < chan->valid_ports; i++)
+		tegra_channel_surface_setup(chan, buf2, i);
+	
+	for (i = 0; i < chan->valid_ports; i++) {
+		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+		vi4_channel_write(chan, chan->vnc_id[i],
+			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
+
+	vi4_check_status(chan);
+
+	spin_lock_irqsave(&chan->capture_state_lock, flags);
+	if (chan->capture_state != CAPTURE_ERROR)
+		chan->capture_state = CAPTURE_GOOD;
+	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
+
+	if (chan->capture_state == CAPTURE_GOOD) {
+		/*
+		 * Set the buffer version to match
+		 * current capture version
+		 */
+		buf1->version = chan->capture_version;
+		enqueue_inflight(chan, buf1);
+	} else {
+		release_buffer(chan, buf1);
+		atomic_inc(&chan->restart_version);
+	}
+
+	/* wait for vi notifier events */
+	vi_notify_wait(chan, buf2, &ts);
+	dev_dbg(&chan->video.dev,
+		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
+
+	vi4_check_status(chan);
+
+	spin_lock_irqsave(&chan->capture_state_lock, flags);
+	if (chan->capture_state != CAPTURE_ERROR)
+		chan->capture_state = CAPTURE_GOOD;
+	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
+
+	if (chan->capture_state == CAPTURE_GOOD) {
+		/*
+		 * Set the buffer version to match
+		 * current capture version
+		 */
+		buf2->version = chan->capture_version;
+		enqueue_inflight(chan, buf2);
+	} else {
+		release_buffer(chan, buf2);
+		atomic_inc(&chan->restart_version);
+	}
+
+	return 0;
+}
+
+
 static void tegra_channel_release_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
@@ -699,10 +791,14 @@ static void tegra_channel_capture_done(struct tegra_channel *chan)
 	release_buffer(chan, buf);
 }
 
+u16 first_frame = 0;
+
 static int tegra_channel_kthread_capture_start(void *data)
 {
 	struct tegra_channel *chan = data;
 	struct tegra_channel_buffer *buf;
+	struct tegra_channel_buffer *buf1;
+	struct tegra_channel_buffer *buf2;
 	int err = 0;
 
 	set_freezable();
@@ -723,11 +819,24 @@ static int tegra_channel_kthread_capture_start(void *data)
 		if (err)
 			continue;
 
-		buf = dequeue_buffer(chan);
-		if (!buf)
-			continue;
+		if (first_frame % 100 == 0){
+			//first_frame = false;
+			buf1 = dequeue_buffer(chan);
+			buf2 = dequeue_buffer(chan);
+			if (!buf1 || !buf2){
+				printk("first_frame buf1 is NULL or buf2 is NULL!\n");
+				continue;
+			}
+			err = tegra_channel_capture_first_frame(chan, buf1, buf2);
+		}
+		else{
+			buf = dequeue_buffer(chan);
+			if (!buf)
+				continue;
 
-		err = tegra_channel_capture_frame(chan, buf);
+			err = tegra_channel_capture_frame(chan, buf);
+		}
+		first_frame++;
 	}
 
 	return 0;
@@ -1001,6 +1110,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	INIT_WORK(&chan->error_work, tegra_channel_error_worker);
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
+
+	first_frame = 0;
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
