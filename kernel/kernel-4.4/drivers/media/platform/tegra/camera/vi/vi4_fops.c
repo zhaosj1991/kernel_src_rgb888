@@ -777,7 +777,9 @@ static int tegra_channel_kthread_capture_start(void *data)
 	struct tegra_channel_buffer *buf_tmp;
 	int err = 0;
 	struct list_head *capture_list = NULL;
+	struct list_head *release_list = NULL;
 	int capture_count = 0;
+	int release_count = 0;
 	u64 count = 0;
 	ktime_t time_point0;
 	ktime_t time_point1;
@@ -790,8 +792,13 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 		list_for_each(capture_list, &(chan->capture))
 			capture_count++;
-		if (capture_count < 1)
-			printk("capture_list is NULL! count = %lld\n", count);		
+		if (capture_count < 1){
+			release_count = 0;
+			list_for_each(release_list, &(chan->release))
+				release_count++;
+			printk("capture_list is NULL!  release_list num = %d  count = %lld\n",
+				release_count, count);
+		}
 		count++;
 
 		time_point0 = ktime_get();
