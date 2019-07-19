@@ -537,17 +537,17 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			return err;
 	}
 
+	/* wait for vi notifier events */
+	vi_notify_wait(chan, buf2, &ts);
+	dev_dbg(&chan->video.dev,
+		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
+
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
 		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		vi4_channel_write(chan, chan->vnc_id[i],
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
-
-	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf2, &ts);
-	dev_dbg(&chan->video.dev,
-		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf1);
 
 	vi4_check_status(chan);
 
@@ -776,6 +776,11 @@ static int tegra_channel_kthread_capture_start(void *data)
 	struct tegra_channel_buffer *buf2;
 	struct tegra_channel_buffer *buf_tmp;
 	int err = 0;
+	struct list_head *capture_list = NULL;
+	int capture_count = 0;
+	u64 count = 0;
+	ktime_t time_point0;
+	ktime_t time_point1;
 
 	set_freezable();
 
@@ -783,10 +788,23 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 		try_to_freeze();
 
+		list_for_each(capture_list, &(chan->capture))
+			capture_count++;
+		if (capture_count < 1)
+			printk("capture_list is NULL! count = %lld\n", count);		
+		count++;
+
+		time_point0 = ktime_get();
 		wait_event_interruptible(chan->start_wait,
 					 !list_empty(&chan->capture) ||
 					 kthread_should_stop());
+		time_point1 = ktime_get();
 
+		if (capture_count < 1)
+			printk("wait_event_interruptible chan->capture time-consuming = %lld ns\n", 
+			ktime_to_ns(ktime_sub(time_point1, time_point0)));
+		capture_count = 0;
+		
 		if (kthread_should_stop())
 			break;
 
