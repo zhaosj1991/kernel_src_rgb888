@@ -174,6 +174,10 @@ static ktime_t surface_point8;
 //static ktime_t release_point0;
 //static ktime_t release_point1;
 
+static s64 old_elapsed_ns1;
+static s64 old_elapsed_ns2;
+static s64 old_elapsed_ns3;
+
 
 static bool vi4_init(struct tegra_channel *chan)
 {
@@ -248,6 +252,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			printk("vi_notify_wait, elapsed_ns1 = %lld ns elapsed_ns2 = %lld ns elapsed_ns3 = %lld ns \
 bufwait_ns= %lld ns err_before_SOF_intertime = %lld\n", 
 				elapsed_ns1, elapsed_ns2, elapsed_ns3, bufwait_ns, err_before_SOF_intertime);
+			printk("vi_notify_wait old_elapsed_ns1 = %lld, old_elapsed_ns2 = %lld, old_elapsed_ns3 = %lld\n",
+				old_elapsed_ns1, old_elapsed_ns2, old_elapsed_ns3);
 printk("time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
 time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
 time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n", 
@@ -629,6 +635,10 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 	
 	time_point9 = ktime_get();
+
+	old_elapsed_ns1 = elapsed_ns1;
+	old_elapsed_ns2 = elapsed_ns2;
+	old_elapsed_ns3 = elapsed_ns3;
 
 	elapsed_ns1 = ktime_to_ns(ktime_sub(time_point0, time_start));
 	elapsed_ns2 = ktime_to_ns(ktime_sub(time_point9, time_start));
