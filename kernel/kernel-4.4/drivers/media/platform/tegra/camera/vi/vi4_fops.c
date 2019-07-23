@@ -178,6 +178,18 @@ static s64 old_elapsed_ns1;
 static s64 old_elapsed_ns2;
 static s64 old_elapsed_ns3;
 
+static s64 old_time_point0;
+static s64 old_time_point1;
+static s64 old_time_point2;
+static s64 old_time_point3;
+static s64 old_time_point4;
+static s64 old_time_point5;
+static s64 old_time_point6;
+static s64 old_time_point7;
+static s64 old_time_point8;
+static s64 old_time_point9;
+
+
 
 static bool vi4_init(struct tegra_channel *chan)
 {
@@ -278,6 +290,13 @@ surface_point7 = %lld ns surface_point8 = %lld ns \n",
 								ktime_to_ns(ktime_sub(surface_point6, surface_point5)),
 								ktime_to_ns(ktime_sub(surface_point7, surface_point6)),
 								ktime_to_ns(ktime_sub(surface_point8, surface_point7)));
+
+		printk("old_time_point0 = %lld ns  old_time_point1 = %lld ns old_time_point2 = %lld ns old_time_point3 = %lld ns \
+old_time_point4 = %lld ns old_time_point5 = %lld ns old_time_point6 = %lld ns\n \
+old_time_point7 = %lld ns old_time_point8 = %lld ns old_time_point9 = %lld ns\n", 
+				old_time_point0, old_time_point1, old_time_point2, old_time_point3, old_time_point4, old_time_point5,
+				old_time_point6, old_time_point7, old_time_point8, old_time_point9);
+
 
 		}
 		else {
@@ -607,9 +626,9 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int i;
 	static int j = 0;
 	
-	s64 elapsed_ns1=0;
-	s64 elapsed_ns2=0;
-	s64 elapsed_ns3=0;
+	s64 elapsed_ns1 = 0;
+	s64 elapsed_ns2 = 0;
+	s64 elapsed_ns3 = 0;
 
 	static struct timespec64 time_spec_0;
 	static struct timespec64 time_spec_1;
@@ -635,10 +654,6 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 	
 	time_point9 = ktime_get();
-
-	old_elapsed_ns1 = elapsed_ns1;
-	old_elapsed_ns2 = elapsed_ns2;
-	old_elapsed_ns3 = elapsed_ns3;
 
 	elapsed_ns1 = ktime_to_ns(ktime_sub(time_point0, time_start));
 	elapsed_ns2 = ktime_to_ns(ktime_sub(time_point9, time_start));
@@ -683,6 +698,21 @@ printk("getnstimeofday64 time0 = %ld ns  time_tmp = %ld\n", time_spec_1.tv_nsec 
 	vi_notify_wait(chan, buf2, &ts, elapsed_ns1, elapsed_ns2, elapsed_ns3, ktime_to_ns(ktime_sub(time_point6, time_point4)));
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
+
+	old_time_point0 = ktime_to_ns(ktime_sub(time_point0, time_start));
+	old_time_point1 = ktime_to_ns(ktime_sub(time_point1, time_point0));
+	old_time_point2 = ktime_to_ns(ktime_sub(time_point2, time_point1));
+	old_time_point3 = ktime_to_ns(ktime_sub(time_point3, time_point2));
+	old_time_point4 = ktime_to_ns(ktime_sub(time_point4, time_point3));
+	old_time_point5 = ktime_to_ns(ktime_sub(time_point5, time_point4));
+	old_time_point6 = ktime_to_ns(ktime_sub(time_point6, time_point5));
+	old_time_point7 = ktime_to_ns(ktime_sub(time_point7, time_point6));
+	old_time_point8 = ktime_to_ns(ktime_sub(time_point8, time_point7));
+	old_time_point9 = ktime_to_ns(ktime_sub(time_point9, time_point8));
+
+	old_elapsed_ns1 = elapsed_ns1;
+	old_elapsed_ns2 = elapsed_ns2;
+	old_elapsed_ns3 = elapsed_ns3;
 		
 	time_point0 = ktime_get();
 	getnstimeofday64(&time_spec_1);
@@ -948,6 +978,14 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 		list_for_each(capture_list, &(chan->capture))
 			capture_count++;
+		if (count % 15000 == 0){
+			/*list_for_each(release_list, &(chan->release))
+				release_count++;
+			printk("######## capture_count = %d release_count = %d count = %lld\n", 
+				capture_count, release_count, count);
+			release_count++;*/
+			printk("######## capture_count = %d count = %lld\n", capture_count, count);
+		}
 		if (capture_count < 1){
 			release_count = 0;
 			list_for_each(release_list, &(chan->release))
@@ -968,6 +1006,7 @@ static int tegra_channel_kthread_capture_start(void *data)
 			printk("wait_event_interruptible chan->capture time-consuming = %lld ns\n", 
 			ktime_to_ns(ktime_sub(time1, time0)));
 		capture_count = 0;
+		release_count = 0;
 		
 		if (kthread_should_stop())
 			break;
