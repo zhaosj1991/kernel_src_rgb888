@@ -147,6 +147,34 @@ int vi4_add_ctrls(struct tegra_channel *chan)
 EXPORT_SYMBOL(vi4_add_ctrls);
 
 
+static ktime_t time_start;
+static ktime_t time_point0;
+static ktime_t time_point1;
+static ktime_t time_point2;
+static ktime_t time_point3;
+static ktime_t time_point4;
+static ktime_t time_point5;
+static ktime_t time_point6;
+static ktime_t time_point7;
+static ktime_t time_point8;
+static ktime_t time_point9;
+//static ktime_t time_point10;
+//static ktime_t time_point11;
+
+static ktime_t surface_point0;
+static ktime_t surface_point1;
+static ktime_t surface_point2;
+static ktime_t surface_point3;
+static ktime_t surface_point4;
+static ktime_t surface_point5;
+static ktime_t surface_point6;
+static ktime_t surface_point7;
+static ktime_t surface_point8;
+
+//static ktime_t release_point0;
+//static ktime_t release_point1;
+
+
 static bool vi4_init(struct tegra_channel *chan)
 {
 	vi4_write(chan, NOTIFY_ERROR, 0x1);
@@ -174,10 +202,13 @@ static bool vi4_check_status(struct tegra_channel *chan)
 }
 
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
-	struct timespec *ts)
+	struct timespec *ts, s64 elapsed_ns1, s64 elapsed_ns2, s64 elapsed_ns3, s64 bufwait_ns)
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
+	static int time_count = 0;
+	static u64 time_temp = 0;
+	static u64 err_before_SOF_intertime = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -211,9 +242,38 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
 				chan->syncpt[i][SOF_SYNCPT_IDX], thresh[i],
 				chan->timeout, NULL, NULL);
-		if (unlikely(err))
+		if (unlikely(err)){
 			dev_err(chan->vi->dev,
 				"PXL_SOF syncpt timeout! err = %d\n", err);
+			printk("vi_notify_wait, elapsed_ns1 = %lld ns elapsed_ns2 = %lld ns elapsed_ns3 = %lld ns \
+bufwait_ns= %lld ns err_before_SOF_intertime = %lld\n", 
+				elapsed_ns1, elapsed_ns2, elapsed_ns3, bufwait_ns, err_before_SOF_intertime);
+printk("time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
+time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
+time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n", 
+											ktime_to_ns(ktime_sub(time_point0, time_start)),
+											ktime_to_ns(ktime_sub(time_point1, time_point0)),
+											ktime_to_ns(ktime_sub(time_point2, time_point1)),
+											ktime_to_ns(ktime_sub(time_point3, time_point2)),
+											ktime_to_ns(ktime_sub(time_point4, time_point3)),
+											ktime_to_ns(ktime_sub(time_point5, time_point4)),
+											ktime_to_ns(ktime_sub(time_point6, time_point5)),
+											ktime_to_ns(ktime_sub(time_point7, time_point6)),
+											ktime_to_ns(ktime_sub(time_point8, time_point7)),
+											ktime_to_ns(ktime_sub(time_point9, time_point8)));
+printk("surface_point1 = %lld ns surface_point2 = %lld ns surface_point3 = %lld ns \
+surface_point4 = %lld ns surface_point5 = %lld ns surface_point6 = %lld ns\n \
+surface_point7 = %lld ns surface_point8 = %lld ns \n", 
+								ktime_to_ns(ktime_sub(surface_point1, surface_point0)),
+								ktime_to_ns(ktime_sub(surface_point2, surface_point1)),
+								ktime_to_ns(ktime_sub(surface_point3, surface_point2)),
+								ktime_to_ns(ktime_sub(surface_point4, surface_point3)),
+								ktime_to_ns(ktime_sub(surface_point5, surface_point4)),
+								ktime_to_ns(ktime_sub(surface_point6, surface_point5)),
+								ktime_to_ns(ktime_sub(surface_point7, surface_point6)),
+								ktime_to_ns(ktime_sub(surface_point8, surface_point7)));
+
+		}
 		else {
 			struct vi_capture_status status;
 
@@ -225,8 +285,15 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 					"no capture status! err = %d\n", err);
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
+
+			if (time_count % 30000 == 0)
+				printk("time_count = %d, status.sof_ts - time_temp = %lld\n\n", 
+				time_count, status.sof_ts - time_temp);
+			err_before_SOF_intertime = status.sof_ts - time_temp;
+			time_temp = status.sof_ts;
 		}
 	}
+	time_count++;
 	return true;
 }
 
@@ -236,20 +303,27 @@ static void tegra_channel_surface_setup(
 	int vnc_id = chan->vnc_id[index];
 	unsigned int offset = chan->buffer_offset[index];
 
+	surface_point0 = ktime_get();
 	if (chan->embedded_data_height > 0)
 		vi4_channel_write(chan, vnc_id, ATOMP_EMB_SURFACE_OFFSET0,
 						  chan->vi->emb_buf);
 	else
 		vi4_channel_write(chan, vnc_id, ATOMP_EMB_SURFACE_OFFSET0, 0);
+	surface_point1 = ktime_get();
 	vi4_channel_write(chan, vnc_id, ATOMP_EMB_SURFACE_OFFSET0_H, 0x0);
+	surface_point2 = ktime_get();
 	vi4_channel_write(chan, vnc_id, ATOMP_EMB_SURFACE_STRIDE0,
 					  chan->embedded_data_width * BPP_MEM);
+	surface_point3 = ktime_get();
 	vi4_channel_write(chan, vnc_id,
 		ATOMP_SURFACE_OFFSET0, buf->addr + offset);
+	surface_point4 = ktime_get();
 	vi4_channel_write(chan, vnc_id,
 		ATOMP_SURFACE_STRIDE0, chan->format.bytesperline);
+	surface_point5 = ktime_get();
 	dev_dbg(chan->vi->dev,"chan->format.bytesperline = %d\n", chan->format.bytesperline);
 	vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_OFFSET0_H, 0x0);
+	surface_point6 = ktime_get();
 
 	if (chan->fmtinfo->fourcc == V4L2_PIX_FMT_NV16) {
 		vi4_channel_write(chan, vnc_id,
@@ -265,10 +339,12 @@ static void tegra_channel_surface_setup(
 		vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_OFFSET1_H, 0x0);
 		vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_STRIDE1, 0x0);
 	}
+	surface_point7 = ktime_get();
 
 	vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_OFFSET2, 0x0);
 	vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_OFFSET2_H, 0x0);
 	vi4_channel_write(chan, vnc_id, ATOMP_SURFACE_STRIDE2, 0x0);
+	surface_point8 = ktime_get();
 }
 
 static void tegra_channel_handle_error(struct tegra_channel *chan)
@@ -523,24 +599,84 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	static int j = 0;
+	
+	s64 elapsed_ns1=0;
+	s64 elapsed_ns2=0;
+	s64 elapsed_ns3=0;
+
+	static struct timespec64 time_spec_0;
+	static struct timespec64 time_spec_1;
+
+	static long time_tmp = 0;
+
+	time_point7 = ktime_get();
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf1, i);
+	time_point8 = ktime_get();
 
 	restart_version = atomic_read(&chan->restart_version);
 	if (!is_streaming ||
 		restart_version != chan->capture_version) {
+
+		printk("tegra_channel_capture_frame tegra_channel_set_stream true!!!\n");
 
 		chan->capture_version = restart_version;
 		err = tegra_channel_set_stream(chan, true);
 		if (err < 0)
 			return err;
 	}
+	
+	time_point9 = ktime_get();
+
+	elapsed_ns1 = ktime_to_ns(ktime_sub(time_point0, time_start));
+	elapsed_ns2 = ktime_to_ns(ktime_sub(time_point9, time_start));
+	elapsed_ns3 = ktime_to_ns(ktime_sub(time_point9, time_point0));
+	if (j % 30000 == 0){
+		printk("j = %d, elapsed_ns1 = %lld ns, elapsed_ns2 = %lld ns elapsed_ns3 = %lld ns\n", 
+			j, elapsed_ns1, elapsed_ns2, elapsed_ns3);
+printk("time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
+time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
+time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n", 
+								ktime_to_ns(ktime_sub(time_point0, time_start)),
+								ktime_to_ns(ktime_sub(time_point1, time_point0)),
+								ktime_to_ns(ktime_sub(time_point2, time_point1)),
+								ktime_to_ns(ktime_sub(time_point3, time_point2)),
+								ktime_to_ns(ktime_sub(time_point4, time_point3)),
+								ktime_to_ns(ktime_sub(time_point5, time_point4)),
+								ktime_to_ns(ktime_sub(time_point6, time_point5)),
+								ktime_to_ns(ktime_sub(time_point7, time_point6)),
+								ktime_to_ns(ktime_sub(time_point8, time_point7)),
+								ktime_to_ns(ktime_sub(time_point9, time_point8)));
+
+printk("surface_point1 = %lld ns surface_point2 = %lld ns surface_point3 = %lld ns \
+surface_point4 = %lld ns surface_point5 = %lld ns surface_point6 = %lld ns\n \
+surface_point7 = %lld ns surface_point8 = %lld ns \n", 
+								ktime_to_ns(ktime_sub(surface_point1, surface_point0)),
+								ktime_to_ns(ktime_sub(surface_point2, surface_point1)),
+								ktime_to_ns(ktime_sub(surface_point3, surface_point2)),
+								ktime_to_ns(ktime_sub(surface_point4, surface_point3)),
+								ktime_to_ns(ktime_sub(surface_point5, surface_point4)),
+								ktime_to_ns(ktime_sub(surface_point6, surface_point5)),
+								ktime_to_ns(ktime_sub(surface_point7, surface_point6)),
+								ktime_to_ns(ktime_sub(surface_point8, surface_point7)));
+printk("getnstimeofday64 time0 = %ld ns  time_tmp = %ld\n", time_spec_1.tv_nsec - time_spec_0.tv_nsec, time_tmp);
+
+	}
+	j++;
+
+	time_start = ktime_get();
+	getnstimeofday64(&time_spec_0);
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf2, &ts);
+	vi_notify_wait(chan, buf2, &ts, elapsed_ns1, elapsed_ns2, elapsed_ns3, ktime_to_ns(ktime_sub(time_point6, time_point4)));
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
+		
+	time_point0 = ktime_get();
+	getnstimeofday64(&time_spec_1);
+	time_tmp = time_spec_1.tv_nsec - time_spec_0.tv_nsec;
 
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
@@ -549,7 +685,12 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
 
+	time_point1 = ktime_get();
+	
+	
 	vi4_check_status(chan);
+	
+	time_point2 = ktime_get();
 
 	spin_lock_irqsave(&chan->capture_state_lock, flags);
 	if (chan->capture_state != CAPTURE_ERROR)
@@ -567,6 +708,8 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		release_buffer(chan, buf2);
 		atomic_inc(&chan->restart_version);
 	}
+	
+	time_point3 = ktime_get();
 
 	return 0;
 }
@@ -602,7 +745,8 @@ static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
 	}
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf1, &ts);
+	vi_notify_wait(chan, buf1, &ts, ktime_to_ns(ktime_sub(time_point0, time_start)), 
+	ktime_to_ns(ktime_sub(time_point9, time_start)), ktime_to_ns(ktime_sub(time_point9, time_point0)), ktime_to_ns(ktime_sub(time_point6, time_point4)));
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf1);
 
@@ -781,14 +925,16 @@ static int tegra_channel_kthread_capture_start(void *data)
 	int capture_count = 0;
 	int release_count = 0;
 	u64 count = 0;
-	ktime_t time_point0;
-	ktime_t time_point1;
+	ktime_t time0;
+	ktime_t time1;
 
 	set_freezable();
 
 	while (1) {
 
 		try_to_freeze();
+
+		time_point4 = ktime_get();
 
 		list_for_each(capture_list, &(chan->capture))
 			capture_count++;
@@ -801,15 +947,16 @@ static int tegra_channel_kthread_capture_start(void *data)
 		}
 		count++;
 
-		time_point0 = ktime_get();
+		time0 = ktime_get();
 		wait_event_interruptible(chan->start_wait,
 					 !list_empty(&chan->capture) ||
 					 kthread_should_stop());
-		time_point1 = ktime_get();
+		time1 = ktime_get();
+		time_point5 = ktime_get();
 
 		if (capture_count < 1)
 			printk("wait_event_interruptible chan->capture time-consuming = %lld ns\n", 
-			ktime_to_ns(ktime_sub(time_point1, time_point0)));
+			ktime_to_ns(ktime_sub(time1, time0)));
 		capture_count = 0;
 		
 		if (kthread_should_stop())
@@ -836,7 +983,9 @@ static int tegra_channel_kthread_capture_start(void *data)
 			if (!buf1){
 				printk("buf1 is NULL!\n");
 				continue;
-			}				
+			}		
+
+			time_point6 = ktime_get();
 
 			err = tegra_channel_capture_frame(chan, buf1, buf_tmp);
 			buf_tmp = buf1;
