@@ -514,6 +514,10 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	return 0;
 }
 
+static bool first_frame_load = true;
+static bool first_frame_singleshot = true;
+
+
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
@@ -523,6 +527,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	u32 singleshot = 0;
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
@@ -537,12 +542,36 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			return err;
 	}
 
+	singleshot = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CONTROL);
+	printk("before singleshot reg = 0x%x\n", singleshot);
+
+	if (first_frame_load){
+//		first_frame_load = false;
+//		printk("step into first_frame load!!!\n");
+		for (i = 0; i < chan->valid_ports; i++) {
+			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+		}
+	}
+
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
-		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
-		vi4_channel_write(chan, chan->vnc_id[i],
-			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+//		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+//		vi4_channel_write(chan, chan->vnc_id[i],
+//			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
+
+	if (first_frame_singleshot){
+		//first_frame_singleshot = false;
+		//printk("step into first_frame singleshot!!!\n");
+		for (i = 0; i < chan->valid_ports; i++) {
+			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+			vi4_channel_write(chan, chan->vnc_id[i],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+		}
+	}
+
+	singleshot = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CONTROL);
+	printk("after singleshot reg = 0x%x\n", singleshot);
 
 	/* wait for vi notifier events */
 	vi_notify_wait(chan, buf, &ts);
@@ -578,6 +607,7 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	int index;
 	int err = 0;
 	int restart_version = 0;
+	u32 singleshot = 0;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -619,6 +649,10 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 		 */
 		atomic_inc(&chan->restart_version);
 	}
+
+	singleshot = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CONTROL);
+	printk("tegra_channel_release_frame after EOF singleshot reg = 0x%x\n", singleshot);
+	
 	release_buffer(chan, buf);
 }
 
@@ -1001,6 +1035,9 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	INIT_WORK(&chan->error_work, tegra_channel_error_worker);
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
+
+	first_frame_load= true;
+	first_frame_singleshot = true;
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
