@@ -225,6 +225,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	static int time_count = 0;
 	static u64 time_temp = 0;
 	static u64 err_before_SOF_intertime = 0;
+	static u64 old_err_before_SOF_intertime = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -264,8 +265,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			printk("vi_notify_wait, elapsed_ns1 = %lld ns elapsed_ns2 = %lld ns elapsed_ns3 = %lld ns \
 bufwait_ns= %lld ns err_before_SOF_intertime = %lld\n", 
 				elapsed_ns1, elapsed_ns2, elapsed_ns3, bufwait_ns, err_before_SOF_intertime);
-			printk("vi_notify_wait old_elapsed_ns1 = %lld, old_elapsed_ns2 = %lld, old_elapsed_ns3 = %lld\n",
-				old_elapsed_ns1, old_elapsed_ns2, old_elapsed_ns3);
+			printk("vi_notify_wait old_elapsed_ns1 = %lld, old_elapsed_ns2 = %lld, old_elapsed_ns3 = %lld old_err_before_SOF_intertime = %lld\n",
+				old_elapsed_ns1, old_elapsed_ns2, old_elapsed_ns3, old_err_before_SOF_intertime);
 printk("time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
 time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
 time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n", 
@@ -314,6 +315,7 @@ old_time_point7 = %lld ns old_time_point8 = %lld ns old_time_point9 = %lld ns\n"
 			if (time_count % 30000 == 0)
 				printk("time_count = %d, status.sof_ts - time_temp = %lld\n\n", 
 				time_count, status.sof_ts - time_temp);
+			old_err_before_SOF_intertime = err_before_SOF_intertime;
 			err_before_SOF_intertime = status.sof_ts - time_temp;
 			time_temp = status.sof_ts;
 		}
