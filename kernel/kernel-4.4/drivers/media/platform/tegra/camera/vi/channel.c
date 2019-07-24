@@ -1659,6 +1659,8 @@ int tegra_channel_init(struct tegra_channel *chan)
 	atomic_set(&chan->is_streaming, DISABLE);
 	spin_lock_init(&chan->capture_state_lock);
 
+	init_waitqueue_head(&chan->load_wait);
+
 	/* Init video format */
 	vi->fops->vi_init_video_formats(chan);
 	chan->fmtinfo = tegra_core_get_default_format();

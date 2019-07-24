@@ -224,6 +224,9 @@ struct tegra_channel {
 	struct device_node *endpoint_node; /* endpoint of_node in vi */
 	unsigned int subdevs_bound;
 	unsigned int link_status;
+
+	wait_queue_head_t load_wait;
+	atomic_t is_eof;
 };
 
 #define to_tegra_channel(vdev) \

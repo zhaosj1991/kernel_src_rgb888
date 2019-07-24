@@ -546,11 +546,19 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	printk("before singleshot reg = 0x%x\n", singleshot);
 
 	if (first_frame_load){
-//		first_frame_load = false;
-//		printk("step into first_frame load!!!\n");
+		first_frame_load = false;
+		printk("step into first_frame load!!!\n");
 		for (i = 0; i < chan->valid_ports; i++) {
 			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		}
+	}
+	else
+	{
+		wait_event_interruptible(chan->load_wait, atomic_read(&chan->is_eof));
+		for (i = 0; i < chan->valid_ports; i++) {
+			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+		}
+		atomic_set(&chan->is_eof, DISABLE);
 	}
 
 	for (i = 0; i < chan->valid_ports; i++) {
@@ -634,6 +642,9 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	}
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
+
+	atomic_set(&chan->is_eof, ENABLE);
+	wake_up_interruptible(&chan->load_wait);
 
 	if (err) {
 		buf->state = VB2_BUF_STATE_ERROR;
@@ -1038,6 +1049,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_frame_load= true;
 	first_frame_singleshot = true;
+
+	atomic_set(&chan->is_eof, DISABLE);
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
