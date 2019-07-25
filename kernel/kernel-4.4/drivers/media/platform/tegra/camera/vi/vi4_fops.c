@@ -23,6 +23,8 @@
 #include "vi4_formats.h"
 #include "vi/vi_notify.h"
 #include <media/sensor_common.h>
+#include<linux/ktime.h>
+
 
 #define DEFAULT_FRAMERATE	30
 #define BPP_MEM		2
@@ -147,6 +149,23 @@ int vi4_add_ctrls(struct tegra_channel *chan)
 EXPORT_SYMBOL(vi4_add_ctrls);
 
 
+static ktime_t time_start;
+static ktime_t time_point0;
+static ktime_t time_point1;
+static ktime_t time_point2;
+static ktime_t time_point3;
+static ktime_t time_point4;
+static ktime_t time_point5;
+static ktime_t time_point6;
+static ktime_t time_point7;
+static ktime_t time_point8;
+static ktime_t time_point9;
+static ktime_t time_eof;
+static u64 sof_interval;
+static u64 wait_interval;
+static u64 sof_eof_interval;
+
+
 static bool vi4_init(struct tegra_channel *chan)
 {
 	vi4_write(chan, NOTIFY_ERROR, 0x1);
@@ -228,9 +247,9 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
 			
-			if (count % 3000 == 0)
-				printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
-			
+			//if (count % 2777 == 0)
+				//printk("#### count = %lld  sof interval time = %lld\n\n", count, status.sof_ts - temp_sof);
+			sof_interval = status.sof_ts - temp_sof;
 			temp_sof = status.sof_ts;
 		}
 	}
@@ -536,9 +555,14 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	static u64 count = 0;
+
+	time_point2 = ktime_get();
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
+
+	time_point3 = ktime_get();
 
 	restart_version = atomic_read(&chan->restart_version);
 	if (!is_streaming ||
@@ -550,6 +574,8 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			return err;
 	}
 
+	time_point4 = ktime_get();
+
 	if (first_frame_load){
 		first_frame_load = false;
 		//printk("step into first_frame load!!!\n");
@@ -560,6 +586,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	else
 	{
 		wait_event_interruptible(chan->load_wait, atomic_read(&chan->is_eof));
+		time_point5 = ktime_get();
 		for (i = 0; i < chan->valid_ports; i++) {
 			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		}
@@ -571,11 +598,15 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		vi4_channel_write(chan, chan->vnc_id[i],
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
+	time_point6 = ktime_get();
+	sof_eof_interval = ktime_to_ns(ktime_sub(time_eof, time_point7));
+	wait_interval = ktime_to_ns(ktime_sub(time_point6, time_point7));
 
 	/* wait for vi notifier events */
 	vi_notify_wait(chan, buf, &ts);
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
+	time_point7 = ktime_get();
 
 	vi4_check_status(chan);
 
@@ -583,6 +614,8 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	if (chan->capture_state != CAPTURE_ERROR)
 		chan->capture_state = CAPTURE_GOOD;
 	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
+
+	time_point8 = ktime_get();
 
 	if (chan->capture_state == CAPTURE_GOOD) {
 		/*
@@ -595,7 +628,27 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		release_buffer(chan, buf);
 		atomic_inc(&chan->restart_version);
 	}
+	time_point9 = ktime_get();
 
+	if (count % 2999 == 0)
+	{
+		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  sof_eof_interval = %lld  ######\n\n time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
+time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
+time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n\n",
+								count, sof_interval, wait_interval, sof_eof_interval, 
+								ktime_to_ns(ktime_sub(time_point0, time_start)),
+								ktime_to_ns(ktime_sub(time_point1, time_point0)),
+								ktime_to_ns(ktime_sub(time_point2, time_point1)),
+								ktime_to_ns(ktime_sub(time_point3, time_point2)),
+								ktime_to_ns(ktime_sub(time_point4, time_point3)),
+								ktime_to_ns(ktime_sub(time_point5, time_point4)),
+								ktime_to_ns(ktime_sub(time_point6, time_point5)),
+								ktime_to_ns(ktime_sub(time_point7, time_point6)),
+								ktime_to_ns(ktime_sub(time_point8, time_point7)),
+								ktime_to_ns(ktime_sub(time_point9, time_point8)));
+	}
+	count++;
+	
 	return 0;
 }
 
@@ -632,7 +685,7 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	}
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
-
+	time_eof = ktime_get();
 	atomic_set(&chan->is_eof, ENABLE);
 	wake_up_interruptible(&chan->load_wait);
 
@@ -741,11 +794,16 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 	while (1) {
 
+		time_start = ktime_get();
+
 		try_to_freeze();
+
+		time_point0 = ktime_get();
 
 		wait_event_interruptible(chan->start_wait,
 					 !list_empty(&chan->capture) ||
 					 kthread_should_stop());
+		time_point1 = ktime_get();
 
 		if (kthread_should_stop())
 			break;
