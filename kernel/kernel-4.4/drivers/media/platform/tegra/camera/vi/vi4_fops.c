@@ -684,7 +684,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 	time_point9 = ktime_get();
 
-	if (count % 3000 == 0)
+	if (count % 50000 == 0)
 	{
 		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  \
 sof_eof_interval = %lld  ######\n\n \
@@ -694,7 +694,7 @@ time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 =
 time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
 time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n\n",
 								count, sof_interval, wait_interval, sof_eof_interval, 
-								count/3000, lost_frame,
+								count/50000, lost_frame,
 								us_10, us_20, us_30, us_40, us_50, us_60, us_70, 
 								ktime_to_ns(ktime_sub(time_point0, time_start)),
 								ktime_to_ns(ktime_sub(time_point1, time_point0)),
