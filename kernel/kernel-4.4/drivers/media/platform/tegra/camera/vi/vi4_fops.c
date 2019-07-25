@@ -178,6 +178,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
+	static u64 temp_sof = 0;
+	static u64 count = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -225,8 +227,13 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 					"no capture status! err = %d\n", err);
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
+
+			if (count % 3000 == 0)
+				printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
+			temp_sof = status.sof_ts;
 		}
 	}
+	count++;
 	return true;
 }
 
