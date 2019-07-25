@@ -164,7 +164,12 @@ static ktime_t time_eof;
 static u64 sof_interval;
 static u64 wait_interval;
 static u64 sof_eof_interval;
+static s64 sof_timestamp;
 
+static u32 lost_frame;
+static u64 sof_eof_interval_base;
+
+static u32 us_10, us_20, us_30, us_40, us_50, us_60, us_70;
 
 static bool vi4_init(struct tegra_channel *chan)
 {
@@ -199,6 +204,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
 	static u64 temp_sof = 0;
 	static u64 count = 0;
+	static s64 sof_stamp_temp = 0;
+	s64 delta = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -238,6 +245,37 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		else {
 			struct vi_capture_status status;
 
+			sof_timestamp = (ktime_get()).tv64;
+			delta = abs((sof_timestamp - sof_stamp_temp - sof_interval) / 1000);
+
+			if (delta >= 10 && delta < 10000)
+			{
+				switch(delta / 10)
+				{
+					case 1:
+						us_10++;
+						break;
+					case 2:
+						us_20++;
+						break;
+					case 3:
+						us_30++;
+						break;
+					case 4:
+						us_40++;
+						break;
+					case 5:
+						us_50++;
+						break;
+					case 6:
+						us_60++;
+						break;
+					default:
+						us_70++;
+						break;
+				}
+			}
+			
 			err = vi_notify_get_capture_status(chan->vnc[i],
 					chan->vnc_id[i],
 					thresh[i], &status);
@@ -248,9 +286,24 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 				*ts = ns_to_timespec((s64)status.sof_ts);
 			
 			//if (count % 2777 == 0)
-				//printk("#### count = %lld  sof interval time = %lld\n\n", count, status.sof_ts - temp_sof);
+				//printk("#### count = %lld  sof interval time = %lld\n\n", count, status.sof_ts - temp_sof);	
 			sof_interval = status.sof_ts - temp_sof;
 			temp_sof = status.sof_ts;
+			sof_stamp_temp = sof_timestamp;
+
+			if (count == 7000)
+			{
+				sof_eof_interval_base = sof_interval;
+			}
+
+			if (count > 7000)
+			{
+				if (abs(sof_interval - sof_eof_interval_base) > 10000)
+				{
+					lost_frame++;
+				}
+			}		
+			
 		}
 	}
 
@@ -570,6 +623,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 
 		chan->capture_version = restart_version;
 		err = tegra_channel_set_stream(chan, true);
+		count = 0;
 		if (err < 0)
 			return err;
 	}
@@ -630,12 +684,18 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 	time_point9 = ktime_get();
 
-	if (count % 2999 == 0)
+	if (count % 3000 == 0)
 	{
-		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  sof_eof_interval = %lld  ######\n\n time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
+		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  \
+sof_eof_interval = %lld  ######\n\n \
+printk_count = %lld lost_frame = %d\n\n \
+us10 = %d  us20 = %d  us30 = %d us40 = %d us50 = %d us60 = %d us70 = %d\n\n \
+time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
 time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
 time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n\n",
 								count, sof_interval, wait_interval, sof_eof_interval, 
+								count/3000, lost_frame,
+								us_10, us_20, us_30, us_40, us_50, us_60, us_70, 
 								ktime_to_ns(ktime_sub(time_point0, time_start)),
 								ktime_to_ns(ktime_sub(time_point1, time_point0)),
 								ktime_to_ns(ktime_sub(time_point2, time_point1)),
@@ -1094,6 +1154,16 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_frame_load= true;
 	first_frame_singleshot = true;
+
+	lost_frame = 0;
+
+	us_10 = 0;
+	us_20 = 0;
+	us_30 = 0;
+	us_40 = 0;
+	us_50 = 0;
+	us_60 = 0;
+	us_70 = 0;
 
 	atomic_set(&chan->is_eof, DISABLE);
 
