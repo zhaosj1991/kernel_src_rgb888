@@ -161,15 +161,21 @@ static ktime_t time_point7;
 static ktime_t time_point8;
 static ktime_t time_point9;
 static ktime_t time_eof;
-static u64 sof_interval;
+static s64 sof_interval;
 static u64 wait_interval;
 static u64 sof_eof_interval;
 static s64 sof_timestamp;
 
-static u32 lost_frame;
-static u64 sof_eof_interval_base;
+static u64 eof_interval;
+static s64 eof_timestamp;
 
-static u32 us_10, us_20, us_30, us_40, us_50, us_60, us_70;
+static u32 lost_frame;
+
+static u32 sus_10_20, sus_30_50, sus_60_80, sus_90_100, sus_110_130;
+static u32 sus_140_160, sus_170_190, sus_200_up;
+
+static u32 eus_10_20, eus_30_50, eus_60_80, eus_90_100, eus_110_130;
+static u32 eus_140_160, eus_170_190, eus_200_up;
 
 static bool vi4_init(struct tegra_channel *chan)
 {
@@ -202,10 +208,11 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 {
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
-	static u64 temp_sof = 0;
+	static s64 temp_sof = 0;
 	static u64 count = 0;
 	static s64 sof_stamp_temp = 0;
 	s64 delta = 0;
+	static s64 sof_interval_temp = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -246,36 +253,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			struct vi_capture_status status;
 
 			sof_timestamp = (ktime_get()).tv64;
-			delta = abs((sof_timestamp - sof_stamp_temp - sof_interval) / 1000);
-
-			if (delta >= 10 && delta < 10000)
-			{
-				switch(delta / 10)
-				{
-					case 1:
-						us_10++;
-						break;
-					case 2:
-						us_20++;
-						break;
-					case 3:
-						us_30++;
-						break;
-					case 4:
-						us_40++;
-						break;
-					case 5:
-						us_50++;
-						break;
-					case 6:
-						us_60++;
-						break;
-					default:
-						us_70++;
-						break;
-				}
-			}
-			
+						
 			err = vi_notify_get_capture_status(chan->vnc[i],
 					chan->vnc_id[i],
 					thresh[i], &status);
@@ -289,21 +267,59 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 				//printk("#### count = %lld  sof interval time = %lld\n\n", count, status.sof_ts - temp_sof);	
 			sof_interval = status.sof_ts - temp_sof;
 			temp_sof = status.sof_ts;
-			sof_stamp_temp = sof_timestamp;
-
-			if (count == 7000)
+		
+			if (sof_interval - sof_interval_temp > min(sof_interval, sof_interval_temp)/2)
 			{
-				sof_eof_interval_base = sof_interval;
+				lost_frame++;
 			}
 
-			if (count > 7000)
+			delta = abs((sof_timestamp - sof_stamp_temp - sof_interval) / 1000);
+
+			if (delta >= 10 && delta < sof_interval/1000 && 
+				sof_interval / 50000 == sof_interval_temp / 50000)
 			{
-				if (abs(sof_interval - sof_eof_interval_base) > 10000)
+				switch(delta / 10)
 				{
-					lost_frame++;
+					case 1:
+					case 2:
+						sus_10_20++;
+						break;
+					case 3:
+					case 4:
+					case 5:
+						sus_30_50++;
+						break;
+					case 6:
+					case 7:
+					case 8:
+						sus_60_80++;
+						break;
+					case 9:
+					case 10:
+						sus_90_100++;
+						break;
+					case 11:
+					case 12:
+					case 13:
+						sus_110_130++;
+						break;
+					case 14:
+					case 15:
+					case 16:
+						sus_140_160++;
+						break;
+					case 17:
+					case 18:
+					case 19:
+						sus_170_190++;
+						break;
+					default:
+						sus_200_up++;
+						break;
 				}
-			}		
-			
+			}
+			sof_stamp_temp = sof_timestamp;
+			sof_interval_temp = sof_interval; 
 		}
 	}
 
@@ -687,15 +703,17 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	if (count % 50000 == 0)
 	{
 		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  \
-sof_eof_interval = %lld  ######\n\n \
+sof_eof_interval = %lld  eof_interval = %lld  ######\n\n \
 printk_count = %lld lost_frame = %d\n\n \
-us10 = %d  us20 = %d  us30 = %d us40 = %d us50 = %d us60 = %d us70 = %d\n\n \
+sus_10_20 = %d  sus_30_50 = %d  sus_60_80 = %d sus_90_100 = %d sus_110_130 = %d sus_140_160 = %d sus_170_190 = %d sus_200_up = %d\n\n \
+eus_10_20 = %d  eus_30_50 = %d  eus_60_80 = %d eus_90_100 = %d eus_110_130 = %d eus_140_160 = %d eus_170_190 = %d eus_200_up = %d\n\n \
 time_point0 = %lld ns  time_point1 = %lld ns time_point2 = %lld ns time_point3 = %lld ns \
 time_point4 = %lld ns time_point5 = %lld ns time_point6 = %lld ns\n \
 time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n\n",
-								count, sof_interval, wait_interval, sof_eof_interval, 
+								count, sof_interval, wait_interval, sof_eof_interval, eof_interval, 
 								count/50000, lost_frame,
-								us_10, us_20, us_30, us_40, us_50, us_60, us_70, 
+								sus_10_20, sus_30_50, sus_60_80, sus_90_100, sus_110_130, sus_140_160, sus_170_190, sus_200_up, 
+								eus_10_20, eus_30_50, eus_60_80, eus_90_100, eus_110_130, eus_140_160, eus_170_190, eus_200_up, 
 								ktime_to_ns(ktime_sub(time_point0, time_start)),
 								ktime_to_ns(ktime_sub(time_point1, time_point0)),
 								ktime_to_ns(ktime_sub(time_point2, time_point1)),
@@ -719,6 +737,11 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	int index;
 	int err = 0;
 	int restart_version = 0;
+	struct vi_capture_status status;
+	static u64 temp_eof = 0;
+	static s64 eof_stamp_temp = 0;
+	s64 delta = 0;
+	static u64 eof_interval_temp = 0;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -743,9 +766,67 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 			dev_err(&chan->video.dev,
 				"MW_ACK_DONE syncpoint time out!%d\n", index);
 	}
+
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
 	time_eof = ktime_get();
+	eof_timestamp = (ktime_get()).tv64;
+
+	vi_notify_get_capture_status(chan->vnc[0],
+					chan->vnc_id[0],
+					buf->thresh[0], &status);
+
+	eof_interval = status.eof_ts - temp_eof;
+	temp_eof = status.eof_ts;
+	
+	delta = abs((eof_timestamp - eof_stamp_temp - eof_interval) / 1000);
+
+	if (delta >= 10 && delta < eof_interval/1000 && 
+		eof_interval / 50000 == eof_interval_temp / 50000)
+	{
+		switch(delta / 10)
+		{
+			case 1:
+			case 2:
+				eus_10_20++;
+				break;
+			case 3:
+			case 4:
+			case 5:
+				eus_30_50++;
+				break;
+			case 6:
+			case 7:
+			case 8:
+				eus_60_80++;
+				break;
+			case 9:
+			case 10:
+				eus_90_100++;
+				break;
+			case 11:
+			case 12:
+			case 13:
+				eus_110_130++;
+				break;
+			case 14:
+			case 15:
+			case 16:
+				eus_140_160++;
+				break;
+			case 17:
+			case 18:
+			case 19:
+				eus_170_190++;
+				break;
+			default:
+				eus_200_up++;
+				break;
+		}
+	}
+	eof_stamp_temp = eof_timestamp;
+	eof_interval_temp = eof_interval;
+	
 	atomic_set(&chan->is_eof, ENABLE);
 	wake_up_interruptible(&chan->load_wait);
 
@@ -1157,14 +1238,24 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	lost_frame = 0;
 
-	us_10 = 0;
-	us_20 = 0;
-	us_30 = 0;
-	us_40 = 0;
-	us_50 = 0;
-	us_60 = 0;
-	us_70 = 0;
+	sus_10_20 = 0;
+	sus_30_50 = 0; 
+	sus_60_80 = 0; 
+	sus_90_100 = 0; 
+	sus_110_130 = 0;
+	sus_140_160 = 0; 
+	sus_170_190 = 0; 
+	sus_200_up = 0;
 
+	eus_10_20 = 0;
+	eus_30_50 = 0; 
+	eus_60_80 = 0; 
+	sus_90_100 = 0; 
+	eus_110_130 = 0;
+	eus_140_160 = 0; 
+	eus_170_190 = 0; 
+	eus_200_up = 0;
+	
 	atomic_set(&chan->is_eof, DISABLE);
 
 	/* Start kthread to capture data to buffer */
