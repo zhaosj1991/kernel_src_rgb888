@@ -228,7 +228,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
 			
-			if (count % 3000 == 0)
+			//if (count % 3000 == 0)
 				printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
 			
 			temp_sof = status.sof_ts;
@@ -525,7 +525,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 
 static bool first_frame_load = true;
 static bool first_frame_singleshot = true;
-
+static bool first_autoload = true;
 
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
@@ -536,6 +536,8 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	u32 singleshot = 0;
+	u32 autoload = 0;
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
@@ -557,25 +559,49 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		}
 	}
-	else
+	/*else
 	{
+		if (first_autoload)
+		{
+			first_autoload = false;
+			for (i = 0; i < chan->valid_ports; i++) {
+				vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, AUTOLOAD);
+			}
+		}
 		wait_event_interruptible(chan->load_wait, atomic_read(&chan->is_eof));
 		for (i = 0; i < chan->valid_ports; i++) {
 			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		}
 		atomic_set(&chan->is_eof, DISABLE);
-	}
+	}*/
 
-	for (i = 0; i < chan->valid_ports; i++) {
-		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
-		vi4_channel_write(chan, chan->vnc_id[i],
-			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	autoload = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CHANNEL_COMMAND);
+	printk("**** tegra_channel_capture_frame autoload reg = 0x%x\n", autoload);
+
+	if (first_frame_singleshot){
+		first_frame_singleshot = false;
+		for (i = 0; i < chan->valid_ports; i++) {
+			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+			vi4_channel_write(chan, chan->vnc_id[i],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+		}
 	}
+	
+	singleshot = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CONTROL);
+	printk("@@@@ tegra_channel_capture_frame after MATCH_STATE_EN singleshot reg = 0x%x\n", singleshot);
 
 	/* wait for vi notifier events */
 	vi_notify_wait(chan, buf, &ts);
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
+
+	if (first_autoload)
+		{
+			first_autoload = false;
+			for (i = 0; i < chan->valid_ports; i++) {
+				vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, AUTOLOAD);
+			}
+		}
 
 	vi4_check_status(chan);
 
@@ -606,6 +632,8 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	int index;
 	int err = 0;
 	int restart_version = 0;
+	u32 singleshot = 0;
+	int i = 0;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -630,11 +658,19 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 			dev_err(&chan->video.dev,
 				"MW_ACK_DONE syncpoint time out!%d\n", index);
 	}
+	singleshot = vi4_read(chan, VI4_CHANNEL_OFFSET * (chan->vnc_id[0] + 1) + CONTROL);
+	printk("tegra_channel_release_frame after EOF singleshot reg = 0x%x\n", singleshot);
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
 
-	atomic_set(&chan->is_eof, ENABLE);
-	wake_up_interruptible(&chan->load_wait);
+	for (i = 0; i < chan->valid_ports; i++) {
+			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+			vi4_channel_write(chan, chan->vnc_id[i],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
+
+	//atomic_set(&chan->is_eof, ENABLE);
+	//wake_up_interruptible(&chan->load_wait);
 
 	if (err) {
 		buf->state = VB2_BUF_STATE_ERROR;
@@ -1036,6 +1072,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_frame_load= true;
 	first_frame_singleshot = true;
+	first_autoload = true;
 
 	atomic_set(&chan->is_eof, DISABLE);
 
