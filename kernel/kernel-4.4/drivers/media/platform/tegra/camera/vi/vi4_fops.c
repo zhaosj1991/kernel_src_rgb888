@@ -549,12 +549,12 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
 
-	for (i = 0; i < chan->valid_ports; i++) {
+	/*for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
 		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		vi4_channel_write(chan, chan->vnc_id[i],
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
-	}
+	}*/
 
 	vi4_check_status(chan);
 
@@ -618,9 +618,7 @@ static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
 	
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
-		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
-		vi4_channel_write(chan, chan->vnc_id[i],
-			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, AUTOLOAD);
 	}
 
 	vi4_check_status(chan);
@@ -653,6 +651,7 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	int index;
 	int err = 0;
 	int restart_version = 0;
+	int i = 0;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -679,6 +678,12 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	}
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
+
+	for (i = 0; i < chan->valid_ports; i++) {
+		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+		vi4_channel_write(chan, chan->vnc_id[i],
+			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
 
 	if (err) {
 		buf->state = VB2_BUF_STATE_ERROR;
