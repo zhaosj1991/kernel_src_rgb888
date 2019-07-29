@@ -489,6 +489,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	vi4_channel_write(chan, vnc_id, DPCM_STRIP, 0x0);
 	vi4_channel_write(chan, vnc_id, ATOMP_DPCM_CHUNK, 0x0);
 	vi4_channel_write(chan, vnc_id, ISPBUFA, 0x0);
+	vi4_channel_write(chan, vnc_id, NOTIFY_MASK_XCPT, MASK_STALE_FRAME);
 	vi4_channel_write(chan, vnc_id, LINE_TIMER, 0x1000000);
 	if (chan->embedded_data_height > 0) {
 		vi4_channel_write(chan, vnc_id, EMBED_X,
@@ -546,7 +547,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	printk("before singleshot reg = 0x%x\n", singleshot);
 
 	if (first_frame_load){
-//		first_frame_load = false;
+		first_frame_load = false;
 //		printk("step into first_frame load!!!\n");
 		for (i = 0; i < chan->valid_ports; i++) {
 			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
