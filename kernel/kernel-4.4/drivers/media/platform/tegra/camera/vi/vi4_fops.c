@@ -177,6 +177,9 @@ static u32 sus_140_160, sus_170_190, sus_200_up;
 static u32 eus_10_20, eus_30_50, eus_60_80, eus_90_100, eus_110_130;
 static u32 eus_140_160, eus_170_190, eus_200_up;
 
+static u32 vi_notify_wait_time_count = 0;
+
+
 static bool vi4_init(struct tegra_channel *chan)
 {
 	vi4_write(chan, NOTIFY_ERROR, 0x1);
@@ -274,6 +277,12 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			}
 
 			delta = abs((sof_timestamp - sof_stamp_temp - sof_interval) / 1000);
+
+			if (delta > 1000)
+			{
+				printk("exceed 1000, vi_notify_wait_time_count = %d  delta = %lld us\n", vi_notify_wait_time_count, delta);
+				vi_notify_wait_time_count++;
+			}
 
 			if (delta >= 10 && delta < sof_interval/1000 && 
 				sof_interval / 50000 == sof_interval_temp / 50000)
@@ -700,7 +709,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 	time_point9 = ktime_get();
 
-	if (count % 50000 == 0)
+	/*if (count % 50000 == 0)
 	{
 		printk("######  count = %lld sof_interval = %lld  wait_sof_end_to_begin = %lld  \
 sof_eof_interval = %lld  eof_interval = %lld  ######\n\n \
@@ -724,7 +733,7 @@ time_point7 = %lld ns time_point8 = %lld ns time_point9 = %lld ns\n\n",
 								ktime_to_ns(ktime_sub(time_point7, time_point6)),
 								ktime_to_ns(ktime_sub(time_point8, time_point7)),
 								ktime_to_ns(ktime_sub(time_point9, time_point8)));
-	}
+	}*/
 	count++;
 	
 	return 0;
@@ -1255,6 +1264,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	eus_140_160 = 0; 
 	eus_170_190 = 0; 
 	eus_200_up = 0;
+
+	vi_notify_wait_time_count = 0;
 	
 	atomic_set(&chan->is_eof, DISABLE);
 
