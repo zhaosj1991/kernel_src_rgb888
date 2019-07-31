@@ -228,8 +228,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
 
-			if (count % 3000 == 0)
-				printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
+			//if (count % 3000 == 0)
+				//printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
 			temp_sof = status.sof_ts;
 		}
 	}
@@ -495,6 +495,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	vi4_channel_write(chan, vnc_id, PIXFMT_FORMAT, format);
 	vi4_channel_write(chan, vnc_id, DPCM_STRIP, 0x0);
 	vi4_channel_write(chan, vnc_id, ATOMP_DPCM_CHUNK, 0x0);
+	vi4_channel_write(chan, vnc_id, NOTIFY_MASK_XCPT, MASK_STALE_FRAME);
 	vi4_channel_write(chan, vnc_id, ISPBUFA, 0x0);
 	vi4_channel_write(chan, vnc_id, LINE_TIMER, 0x1000000);
 	if (chan->embedded_data_height > 0) {
