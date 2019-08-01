@@ -173,6 +173,16 @@ static bool vi4_check_status(struct tegra_channel *chan)
 	return true;
 }
 
+u32 vi_notify_wait_time_count = 0;
+EXPORT_SYMBOL(vi_notify_wait_time_count);
+
+s64 vi_notify_wait_time_delta[100];
+EXPORT_SYMBOL(vi_notify_wait_time_delta);
+
+s64 vi_sof_interval[100];
+EXPORT_SYMBOL(vi_sof_interval);
+
+
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
 {
@@ -180,6 +190,11 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
 	static u64 temp_sof = 0;
 	static u64 count = 0;
+
+	static s64 sof_interval = 0;
+	static s64 sof_timestamp = 0;
+	static s64 sof_stamp_temp = 0;
+	s64 delta = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -219,6 +234,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		else {
 			struct vi_capture_status status;
 
+			sof_timestamp = (ktime_get()).tv64;
+
 			err = vi_notify_get_capture_status(chan->vnc[i],
 					chan->vnc_id[i],
 					thresh[i], &status);
@@ -228,9 +245,21 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			else
 				*ts = ns_to_timespec((s64)status.sof_ts);
 
+			sof_interval = status.sof_ts - temp_sof;
+
+			delta = (sof_timestamp - sof_stamp_temp - sof_interval) / 1000;
+			if (delta > 500 && vi_notify_wait_time_count < 100)
+			{
+				//printk("exceed 1000, vi_notify_wait_time_count = %d  delta = %lld us\n", vi_notify_wait_time_count, delta);
+				vi_notify_wait_time_delta[vi_notify_wait_time_count] = delta;
+				vi_sof_interval[vi_notify_wait_time_count] = sof_interval;
+				vi_notify_wait_time_count++;
+			}
+
 			//if (count % 3000 == 0)
 				//printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
 			temp_sof = status.sof_ts;
+			sof_stamp_temp = sof_timestamp;
 		}
 	}
 	count++;
@@ -1124,6 +1153,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
 
 	first_frame = true;
+	vi_notify_wait_time_count = 0;
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
