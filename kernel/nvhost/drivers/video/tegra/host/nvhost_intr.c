@@ -361,6 +361,8 @@ void nvhost_syncpt_thresh_fn(void *dev_id)
 	struct nvhost_master *dev = intr_to_dev(intr);
 	int err;
 
+	printk("nvhost_syncpt_thresh_fn&&&&&&&\n");
+
 	/* make sure host1x is powered */
 	err = nvhost_module_busy(dev->dev);
 	if (err) {
@@ -545,6 +547,8 @@ void nvhost_intr_put_ref(struct nvhost_intr *intr, u32 id, void *ref)
 	struct nvhost_waitlist *waiter = ref;
 	struct nvhost_intr_syncpt *syncpt;
 	struct nvhost_master *host = intr_to_dev(intr);
+
+	printk("nvhost_intr_put_ref &&&&&&&&&&&& \n");
 
 	while (atomic_cmpxchg(&waiter->state,
 				WLS_PENDING, WLS_CANCELLED) == WLS_REMOVED)

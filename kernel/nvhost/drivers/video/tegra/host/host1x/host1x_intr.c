@@ -69,6 +69,8 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 			sp = intr->syncpt + sp_id;
 			sp->isr_recv = isr_recv;
 
+			printk("host1x_intr.c : syncpt_thresh_cascade_isr &&&&&&&&&&&\n");
+
 			/* handle graphics host syncpoint increments
 			 * immediately
 			 */

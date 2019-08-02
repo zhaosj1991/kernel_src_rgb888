@@ -33,6 +33,7 @@
 /* XXX: move ioctls to include/linux/ (after T18X merge) */
 #include <linux/nvhost_vi_ioctl.h>
 
+#define DEBUG
 #define NVHOST_VI_SET_IGN_MASK _IOW(NVHOST_VI_IOCTL_MAGIC, 10, u32)
 #define NVHOST_VI_SET_SYNCPTS \
 	_IOW(NVHOST_VI_IOCTL_MAGIC, 13, struct tegra_vi4_syncpts_req)
@@ -322,13 +323,23 @@ int vi_notify_channel_enable_reports(unsigned channel,
 	struct vi_notify_dev *vnd = chan->vnd;
 	int err;
 
-	if (!vnd->driver->enable_reports)
-		return -ENOTSUPP;
-	if (req->pad)
-		return -EINVAL;
-	if (mutex_lock_interruptible(&vnd->lock))
-		return -ERESTARTSYS;
+	printk("vi_notify.c : vi_notify_channel_enable_reports ######## 0\n");
 
+	if (!vnd->driver->enable_reports){
+		printk("vi_notify.c : vi_notify_channel_enable_reports ######## 1\n");
+		return -ENOTSUPP;
+	}
+		
+	if (req->pad){
+		printk("vi_notify.c : vi_notify_channel_enable_reports ######## 2\n");
+		return -EINVAL;
+	}
+		
+	if (mutex_lock_interruptible(&vnd->lock)){
+		printk("vi_notify.c : vi_notify_channel_enable_reports ######## 3\n");
+		return -ERESTARTSYS;
+	}
+		
 	err = vnd->driver->enable_reports(vnd->device, channel,
 				req->stream, req->vc, req->syncpt_ids);
 	mutex_unlock(&vnd->lock);

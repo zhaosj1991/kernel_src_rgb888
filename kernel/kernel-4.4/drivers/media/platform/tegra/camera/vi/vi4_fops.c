@@ -9,7 +9,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-//#define DEBUG
+#define DEBUG
 #include <linux/nvhost.h>
 #include <linux/tegra-powergate.h>
 #include <linux/kthread.h>
@@ -182,6 +182,20 @@ EXPORT_SYMBOL(vi_notify_wait_time_delta);
 s64 vi_sof_interval[100];
 EXPORT_SYMBOL(vi_sof_interval);
 
+u32 sof_notify_wait_delta_count = 0;
+EXPORT_SYMBOL(sof_notify_wait_delta_count);
+
+s64 sof_notify_wait_delta[100];
+EXPORT_SYMBOL(sof_notify_wait_delta);
+
+s64 delta_vi_sof[100];
+EXPORT_SYMBOL(delta_vi_sof);
+
+s64 delta_notify_sof[100];
+EXPORT_SYMBOL(delta_notify_sof);
+
+
+extern s64 notify_sof_time;
 
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
@@ -195,6 +209,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	static s64 sof_timestamp = 0;
 	static s64 sof_stamp_temp = 0;
 	s64 delta = 0;
+	s64 notify_delta = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -235,6 +250,13 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			struct vi_capture_status status;
 
 			sof_timestamp = (ktime_get()).tv64;
+			notify_delta = (sof_timestamp - notify_sof_time) / 1000;
+			if (notify_delta > 500 && sof_notify_wait_delta_count < 100){
+				sof_notify_wait_delta[sof_notify_wait_delta_count] = notify_delta;
+				delta_vi_sof[sof_notify_wait_delta_count] = sof_timestamp;
+				delta_notify_sof[sof_notify_wait_delta_count] = notify_sof_time;
+				sof_notify_wait_delta_count++;
+			}
 
 			err = vi_notify_get_capture_status(chan->vnc[i],
 					chan->vnc_id[i],
@@ -415,6 +437,7 @@ static int tegra_channel_notify_enable(
 	req.vc = 0;
 	req.pad = 0;
 
+	printk("vi4_fops.c: tegra_channel_notify_enable #######\n");
 	err = vi_notify_channel_enable_reports(
 		chan->vnc_id[index], chan->vnc[index], &req);
 	if (err < 0)
@@ -1027,6 +1050,7 @@ static int tegra_channel_update_clknbw(struct tegra_channel *chan, u8 on)
 	return 0;
 }
 
+extern u32 notify_sof_count;
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
@@ -1154,6 +1178,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_frame = true;
 	vi_notify_wait_time_count = 0;
+	sof_notify_wait_delta_count = 0;
+	notify_sof_count = 0;
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(

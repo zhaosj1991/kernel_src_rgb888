@@ -55,7 +55,7 @@ static const char *max_name = "max";
 void nvhost_syncpt_reset(struct nvhost_syncpt *sp)
 {
 	u32 i;
-
+	printk("nvhost_syncpt_reset^^^^^^^^^\n");
 	for (i = nvhost_syncpt_pts_base(sp);
 			i < nvhost_syncpt_pts_limit(sp); i++)
 		syncpt_op().reset(sp, i);
@@ -68,7 +68,7 @@ void nvhost_syncpt_reset(struct nvhost_syncpt *sp)
 void nvhost_syncpt_initialize_unused(struct nvhost_syncpt *sp)
 {
 	u32 i;
-
+	printk("nvhost_syncpt_initialize_unused^^^^^^^^^\n");
 	for (i = nvhost_syncpt_pts_base(sp);
 			i < nvhost_syncpt_pts_limit(sp); i++) {
 		if (syncpt_op().mark_unused)
@@ -80,7 +80,7 @@ void nvhost_syncpt_initialize_unused(struct nvhost_syncpt *sp)
 void nvhost_syncpt_patch_check(struct nvhost_syncpt *sp)
 {
 	int graphics_host_sp = nvhost_syncpt_graphics_host_sp(sp);
-
+	printk("nvhost_syncpt_patch_check^^^^^^^^^\n");
 	/* reset graphics host syncpoint value back to 0 */
 	atomic_set(&sp->min_val[graphics_host_sp], 0);
 	syncpt_op().reset(sp, graphics_host_sp);
@@ -93,7 +93,7 @@ void nvhost_syncpt_save(struct nvhost_syncpt *sp)
 {
 	u32 i;
 	struct nvhost_master *master = syncpt_to_dev(sp);
-
+	printk("nvhost_syncpt_save^^^^^^^^^\n");
 	for (i = nvhost_syncpt_pts_base(sp);
 			i < nvhost_syncpt_pts_limit(sp); i++) {
 		if (nvhost_syncpt_client_managed(sp, i))
@@ -114,7 +114,7 @@ void nvhost_syncpt_save(struct nvhost_syncpt *sp)
 u32 nvhost_syncpt_update_min(struct nvhost_syncpt *sp, u32 id)
 {
 	u32 val;
-
+	printk("nvhost_syncpt_update_min^^^^^^^^^\n");
 	val = syncpt_op().update_min(sp, id);
 	trace_nvhost_syncpt_update_min(id, val);
 
@@ -128,6 +128,7 @@ u32 nvhost_syncpt_update_min(struct nvhost_syncpt *sp, u32 id)
 u32 nvhost_syncpt_set_min_cached(struct nvhost_syncpt *sp, u32 id, u32 val)
 {
 	u32 old = nvhost_syncpt_read_min(sp, id);
+	printk("nvhost_syncpt_set_min_cached^^^^^^^^^\n");
 	if (nvhost_syncpt_is_expired(sp, id, val) ||
 		((u32)atomic_cmpxchg(&sp->min_val[id], old, val) != old))
 		return nvhost_syncpt_update_min(sp, id);
@@ -140,6 +141,7 @@ u32 nvhost_syncpt_set_min_cached(struct nvhost_syncpt *sp, u32 id, u32 val)
  */
 int nvhost_syncpt_read_check(struct nvhost_syncpt *sp, u32 id, u32 *val)
 {
+	printk("nvhost_syncpt_read_check^^^^^^^^^\n");
 	if (nvhost_module_busy(syncpt_to_dev(sp)->dev))
 		return -EINVAL;
 
@@ -157,6 +159,7 @@ u32 nvhost_syncpt_read(struct nvhost_syncpt *sp, u32 id)
 	u32 val = 0xffffffff;
 	int err;
 
+	printk("nvhost_syncpt_read^^^^^^^^^\n");
 	err = nvhost_module_busy(syncpt_to_dev(sp)->dev);
 	if (err)
 		return val;
@@ -172,6 +175,7 @@ u32 nvhost_syncpt_read(struct nvhost_syncpt *sp, u32 id)
  */
 void nvhost_syncpt_cpu_incr(struct nvhost_syncpt *sp, u32 id)
 {
+	printk("nvhost_syncpt_cpu_incr^^^^^^^^^\n");
 	syncpt_op().cpu_incr(sp, id);
 }
 
@@ -181,7 +185,7 @@ void nvhost_syncpt_cpu_incr(struct nvhost_syncpt *sp, u32 id)
 int nvhost_syncpt_incr(struct nvhost_syncpt *sp, u32 id)
 {
 	int err;
-
+	printk("nvhost_syncpt_incr^^^^^^^^^\n");
 	err = nvhost_module_busy(syncpt_to_dev(sp)->dev);
 	if (err)
 		return err;
@@ -234,7 +238,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	if (!id || !nvhost_syncpt_is_valid_hw_pt(sp, id))
 		return -EINVAL;
 
-
+	printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 0\n");
 	/*
 	 * In case when syncpoint belongs to a remote VM host1x hardware
 	 * does not allow to set up threshold interrupt locally and polling
@@ -245,6 +249,8 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	if (value)
 		*value = 0;
+
+	printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 1\n");
 
 	/* first check cache */
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
@@ -259,6 +265,8 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	err = nvhost_module_busy(syncpt_to_dev(sp)->dev);
 	if (err)
 		return err;
+
+	printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 2\n");
 
 	/* try to read from register */
 	val = syncpt_op().update_min(sp, id);
@@ -276,7 +284,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	}
 
 	old_val = val;
-
+	printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 3\n");
 	/* Set up a threshold interrupt waiter */
 	if (!syncpt_poll) {
 
@@ -304,10 +312,13 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	if (timeout < SYNCPT_CHECK_PERIOD)
 		low_timeout = timeout;
 
-	if (nvhost_dev_is_virtual(host->dev))
+	if (nvhost_dev_is_virtual(host->dev)){
 		syncpt_is_expired = nvhost_syncpt_is_expired;
-	else
-		syncpt_is_expired = syncpt_update_min_is_expired;
+		printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 31\n");
+	}else{
+		syncpt_is_expired = syncpt_update_min_is_expired;	
+		printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 32\n");
+	}
 
 	/* wait for the syncpoint, or timeout, or signal */
 	while (timeout) {
@@ -335,13 +346,15 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 							SYNCPT_POLL_PERIOD);
 
 		} else if (interruptible)
-			remain = wait_event_interruptible_timeout(waiter->wq,
+			{remain = wait_event_interruptible_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
-		else
+		printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 4\n");}
+		else{
 			remain = wait_event_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
+			printk("nvhost_syncpt_wait_timeout ^^^^^^^^^ 5\n");}
 		if (remain > 0 ||
 			syncpt_update_min_is_expired(sp, id, thresh)) {
 			if (value)

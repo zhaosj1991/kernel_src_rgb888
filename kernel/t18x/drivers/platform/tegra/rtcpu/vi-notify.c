@@ -101,6 +101,8 @@ static void tegra_ivc_vi_notify_process(struct tegra_ivc_channel *chan,
 {
 	struct tegra_ivc_vi_notify *ivn = tegra_ivc_channel_get_drvdata(chan);
 
+	printk("vi-notify.c: tegra_ivc_vi_notify_process #############\n");
+
 	if (sizeof(*msg) > len) {
 		dev_warn(&chan->dev, "Invalid extended message.\n");
 		return;
@@ -141,6 +143,8 @@ static void tegra_ivc_channel_vi_notify_worker(struct work_struct *work)
 	while (tegra_ivc_can_read(&chan->ivc)) {
 		const void *data = tegra_ivc_read_get_next_frame(&chan->ivc);
 		size_t length = chan->ivc.frame_size;
+
+		printk("vi-notify.c:  tegra_ivc_channel_vi_notify_worker @@@@@@@@@@@@@@@@@@@@@@@\n");
 
 		tegra_ivc_vi_notify_recv(chan, data, length);
 		tegra_ivc_read_advance(&chan->ivc);
@@ -269,6 +273,8 @@ static int tegra_ivc_vi_notify_enable_reports(struct device *dev, u8 ch,
 		.status_entries = ivn->status_entries,
 	};
 	int err;
+
+	printk("vi-notify.c: tegra_ivc_vi_notify_enable_reports $$$$$$$$$$$$$$$\n");
 
 	memcpy(msg.syncpt_ids, ids, sizeof(msg.syncpt_ids));
 

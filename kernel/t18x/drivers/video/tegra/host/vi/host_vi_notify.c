@@ -88,6 +88,16 @@ static irqreturn_t nvhost_vi_prio_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+extern s64 vi_sof_interval[100];
+s64 notify_sof[100];
+EXPORT_SYMBOL(notify_sof);
+
+u32 notify_sof_count = 0;
+EXPORT_SYMBOL(notify_sof_count);
+
+s64 notify_sof_time = 0;
+EXPORT_SYMBOL(notify_sof_time);
+
 static void nvhost_vi_notify_do_increment(struct platform_device *pdev,
 						u8 ch, u8 tag)
 {
@@ -96,9 +106,20 @@ static void nvhost_vi_notify_do_increment(struct platform_device *pdev,
 	struct nvhost_vi_notify_dev *hvnd = vi->hvnd;
 	int idx;
 	u32 id;
+	static s64 sof_time_temp = 0;
+	s64 delta = 0;
 
 	if (unlikely(ch >= ARRAY_SIZE(hvnd->incr)))
 		return;
+
+	if (tag == VI_NOTIFY_TAG_CHANSEL_PIXEL_SOF && notify_sof_count < 100){
+		printk("######## nvhost_vi_notify_do_increment\n");
+		notify_sof_time = (ktime_get()).tv64;
+		delta = notify_sof_time - sof_time_temp;
+		if (abs(delta - vi_sof_interval[0]) > 100)
+			notify_sof[notify_sof_count++] = delta;
+		sof_time_temp = notify_sof_time;
+	}
 
 	switch (tag) {
 	case VI_NOTIFY_TAG_CHANSEL_PIXEL_SOF:
@@ -130,6 +151,8 @@ static irqreturn_t nvhost_vi_notify_isr(int irq, void *dev_id)
 		u32 v;
 		u8 ch;
 		u8 tag;
+
+		printk("*************nvhost_vi_notify_isr\n");
 
 		msg.tag = host1x_readl(pdev, VI_NOTIFY_FIFO_TAG_0_0);
 		nvhost_vi_notify_dump_status(pdev);
@@ -223,6 +246,8 @@ static int nvhost_vi_notify_probe(struct device *dev,
 	struct nvhost_vi_notify_dev *hvnd;
 	int ret;
 
+	printk("nvhost_vi_notify_probe*****\n");
+
 	hvnd = devm_kmalloc(dev, sizeof(*hvnd), GFP_KERNEL);
 	if (unlikely(hvnd == NULL))
 		return -ENOMEM;
@@ -291,8 +316,11 @@ static int nvhost_vi_notify_set_mask(struct platform_device *pdev, u32 mask)
 		enable_irq(hvnd->norm_irq);
 	}
 
+	printk("nvhost_vi_notify_set_mask************\n");
+
 	host1x_writel(pdev, VI_NOTIFY_TAG_CLASSIFY_NO_OUTPUT_0, ~mask);
-	host1x_writel(pdev, VI_NOTIFY_TAG_CLASSIFY_HIGH_0, 0);
+//	host1x_writel(pdev, VI_NOTIFY_TAG_CLASSIFY_HIGH_0, 0);
+	host1x_writel(pdev, VI_NOTIFY_TAG_CLASSIFY_HIGH_0, 1u << VI_NOTIFY_TAG_CHANSEL_PIXEL_SOF);
 	host1x_writel(pdev, VI_NOTIFY_OCCUPANCY_URGENT_0, 512);
 	nvhost_vi_notify_dump_classify(pdev);
 

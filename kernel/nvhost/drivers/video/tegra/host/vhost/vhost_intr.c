@@ -48,6 +48,8 @@ static void syncpt_thresh_cascade_handler(struct nvhost_master *dev,
 		return;
 	}
 
+	printk("vhost_intr.c : syncpt_thresh_cascade_handler &&&&&&&&&&&s\n");
+
 	sp = intr->syncpt + sp_id;
 	nvhost_ktime_get_ts(&sp->isr_recv);
 	nvhost_syncpt_set_min_cached(&dev->syncpt, sp_id, info->thresh);

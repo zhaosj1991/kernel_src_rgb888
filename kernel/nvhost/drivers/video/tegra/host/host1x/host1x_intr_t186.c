@@ -74,6 +74,7 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 				intr_syncpt_intr_ack(sp, false);
 			} else {
 				intr_syncpt_intr_ack(sp, true);
+				printk("host1x_intr_t186.c : syncpt_thresh_cascade_isr &&&&&&&&&&&\n");
 				nvhost_syncpt_thresh_fn(sp);
 			}
 		}

@@ -45,6 +45,8 @@ static u32 t20_syncpt_update_min(struct nvhost_syncpt *sp, u32 id)
 	struct nvhost_master *dev = syncpt_to_dev(sp);
 	u32 old, live;
 
+	printk("host1x_syncpt.c: t20_syncpt_update_min&&&&&&&&&&&&\n");
+
 	do {
 		old = nvhost_syncpt_read_min(sp, id);
 		live = host1x_sync_readl(dev,
@@ -62,7 +64,8 @@ static void t20_syncpt_cpu_incr(struct nvhost_syncpt *sp, u32 id)
 {
 	struct nvhost_master *dev = syncpt_to_dev(sp);
 	u32 reg_offset = id / 32;
-
+	
+	printk("host1x_syncpt.c: t20_syncpt_cpu_incr&&&&&&&&&&&&\n");
 	if (!nvhost_syncpt_client_managed(sp, id)
 			&& nvhost_syncpt_min_eq_max(sp, id)) {
 		dev_err(&syncpt_to_dev(sp)->dev->dev,

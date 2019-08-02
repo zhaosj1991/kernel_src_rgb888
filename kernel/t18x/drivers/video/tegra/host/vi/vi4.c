@@ -183,6 +183,7 @@ static int tegra_vi4_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "missing master IRQ\n");
 
 	if (!tegra_camera_rtcpu_available()) {
+		printk("&&&&&&&&&&& tegra_camera_rtcpu_available = false !\n");
 		err = vi_notify_register(&nvhost_vi_notify_driver, &pdev->dev,
 						12);
 		if (err) {
@@ -190,6 +191,7 @@ static int tegra_vi4_probe(struct platform_device *pdev)
 			return err;
 		}
 	}
+	printk("&&&&&&&&&&& tegra_camera_rtcpu_available = true !\n");
 
 	mutex_init(&vi->update_la_lock);
 	vi->mc_vi.ndev = pdev;
