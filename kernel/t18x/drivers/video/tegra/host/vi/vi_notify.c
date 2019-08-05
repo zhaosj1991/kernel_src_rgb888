@@ -183,6 +183,8 @@ void vi_notify_dev_recv(struct vi_notify_dev *vnd,
 	u8 channel = VI_NOTIFY_TAG_CHANNEL(msg->tag);
 	u8 tag = VI_NOTIFY_TAG_TAG(msg->tag);
 
+	printk("vi-notify.c vi_notify_dev_recv ^^^^^^^^^^ \n");
+
 	dev_dbg(vnd->device, "Message: tag:%2u channel:%02X frame:%04X\n",
 		tag, channel, VI_NOTIFY_TAG_FRAME(msg->tag));
 	dev_dbg(vnd->device, "         timestamp %u data 0x%08x",
@@ -368,6 +370,12 @@ int vi_notify_get_capture_status(struct vi_notify_channel *chan,
 	struct vi_notify_dev *vnd = chan->vnd;
 	int err = 0;
 
+	static u32 i = 1;
+
+		if (i % 100 == 0)
+			printk("vi_notify.c: vi_notify_get_capture_status &&&&&&& i = %d\n", i);
+		i++;
+
 	if (!vnd->driver->get_capture_status)
 		return -ENOTSUPP;
 	if (mutex_lock_interruptible(&vnd->lock))
@@ -439,6 +447,12 @@ static long vi_notify_ioctl(struct file *file, unsigned int cmd,
 		int err = 0;
 		u64 index = 0;
 		struct vi_capture_status status;
+
+		static u32 i = 1;
+
+		if (i % 100 == 0)
+			printk("vi_notify.c: vi_notify_ioctl/NVHOST_VI_GET_CAPTURE_STATUS &&&&&&& i = %d\n", i);
+		i++;
 
 		if (copy_from_user(&index, (void __user *)arg, sizeof(u64)))
 			return -EFAULT;

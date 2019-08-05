@@ -101,6 +101,8 @@ static void tegra_ivc_vi_notify_process(struct tegra_ivc_channel *chan,
 {
 	struct tegra_ivc_vi_notify *ivn = tegra_ivc_channel_get_drvdata(chan);
 
+	printk("vi-notify.c tegra_ivc_vi_notify_process ^^^^^^^^^^ \n");
+
 	if (sizeof(*msg) > len) {
 		dev_warn(&chan->dev, "Invalid extended message.\n");
 		return;
@@ -108,9 +110,11 @@ static void tegra_ivc_vi_notify_process(struct tegra_ivc_channel *chan,
 
 	switch (msg->type) {
 	case VI_NOTIFY_MSG_ACK:
+		printk("vi-notify.c tegra_ivc_vi_notify_process VI_NOTIFY_MSG_ACK^^^^^^^^^^ \n");
 		complete(&ivn->ack);
 		break;
 	case VI_NOTIFY_MSG_STATUS:
+		printk("vi-notify.c tegra_ivc_vi_notify_process VI_NOTIFY_MSG_STATUS^^^^^^^^^^ \n");
 		tegra_ivc_vi_notify_status(chan, msg);
 		break;
 	default:
@@ -125,6 +129,8 @@ static void tegra_ivc_vi_notify_recv(struct tegra_ivc_channel *chan,
 	struct tegra_ivc_vi_notify *ivn = tegra_ivc_channel_get_drvdata(chan);
 	const struct vi_notify_msg *msg = data;
 
+	printk("vi-notify.c tegra_ivc_vi_notify_recv ^^^^^^^^^^ \n");
+	
 	if (len >= sizeof(*msg) && VI_NOTIFY_TAG_VALID(msg->tag))
 		vi_notify_dev_recv(ivn->vi_notify, msg);
 	else
@@ -134,23 +140,37 @@ static void tegra_ivc_vi_notify_recv(struct tegra_ivc_channel *chan,
 static void tegra_ivc_channel_vi_notify_worker(struct work_struct *work)
 {
 	struct tegra_ivc_channel *chan;
+	static u32 i = 1;
 
 	chan = container_of(work,
 			struct tegra_ivc_vi_notify, notify_work)->chan;
-
+	
 	while (tegra_ivc_can_read(&chan->ivc)) {
 		const void *data = tegra_ivc_read_get_next_frame(&chan->ivc);
 		size_t length = chan->ivc.frame_size;
 
 		tegra_ivc_vi_notify_recv(chan, data, length);
 		tegra_ivc_read_advance(&chan->ivc);
+
+		
+		if (i % 100 == 0){
+			printk("vi-notify.c: tegra_ivc_channel_vi_notify_worker ################# i = %d\n", i);
+		}
+		i++;
 	}
 }
 
 /* Called from interrupt handler */
 static void tegra_ivc_channel_vi_notify_process(struct tegra_ivc_channel *chan)
 {
+	static u32 i = 1;
+
 	struct tegra_ivc_vi_notify *ivn = tegra_ivc_channel_get_drvdata(chan);
+
+	if (i % 100 == 0){
+			printk("vi-notify.c: tegra_ivc_channel_vi_notify_process ################# i = %d\n", i);
+	}
+	i++;
 
 	wake_up(&ivn->write_q);
 	schedule_work(&ivn->notify_work);
@@ -220,6 +240,9 @@ static int tegra_ivc_vi_notify_classify(struct device *dev, u32 mask)
 	};
 	int err;
 
+	printk("vi-notify.c: tegra_ivc_vi_notify_classify #################\n");
+	
+
 	if (ivn->tags == mask)
 		return 0; /* nothing to do */
 
@@ -240,6 +263,8 @@ static int tegra_ivc_vi_notify_set_syncpts(struct device *dev, u8 ch,
 		.channel = ch,
 	};
 	int err;
+	
+	printk("vi-notify.c: tegra_ivc_vi_notify_set_syncpts #################\n");
 
 	memcpy(msg.syncpt_ids, ids, sizeof(msg.syncpt_ids));
 
@@ -270,6 +295,8 @@ static int tegra_ivc_vi_notify_enable_reports(struct device *dev, u8 ch,
 	};
 	int err;
 
+	printk("vi-notify.c: tegra_ivc_vi_notify_enable_reports #################\n");
+
 	memcpy(msg.syncpt_ids, ids, sizeof(msg.syncpt_ids));
 
 	err = tegra_ivc_vi_notify_send(chan, &msg);
@@ -288,6 +315,8 @@ static void tegra_ivc_vi_notify_reset_channel(struct device *dev, u8 ch)
 		.channel = ch,
 	};
 	int err;
+
+	printk("vi-notify.c: tegra_ivc_vi_notify_reset_channel #################\n");	
 
 	if (unlikely((ivn->channels_mask & (1u << ch)) == 0))
 		return;
@@ -336,6 +365,13 @@ static int tegra_ivc_vi_notify_get_capture_status(struct device *dev,
 	u64 tail = 0;
 	int err = 0;
 
+	static u32 i = 1;
+
+	if (i % 100 == 0){
+			printk("vi-notify.c: tegra_ivc_vi_notify_get_capture_status ################# i = %d\n", i);
+	}
+	i++;
+
 	if (ivn->status_entries) {
 		tail = index & (VI_NOTIFY_STATUS_ENTRIES - 1);
 		*status = *(status_mem + tail);
@@ -350,6 +386,13 @@ static int tegra_ivc_vi_notify_runtime_get(struct device *dev)
 	struct tegra_ivc_channel *chan = to_tegra_ivc_channel(dev);
 	struct tegra_ivc_vi_notify *ivn = tegra_ivc_channel_get_drvdata(chan);
 	int err = nvhost_module_busy(ivn->vi);
+	
+	static u32 i = 1;
+
+	if (i % 100 == 0){
+			printk("vi-notify.c: tegra_ivc_vi_notify_runtime_get ################# i = %d\n", i);
+	}
+	i++;
 
 	if (err < 0)
 		return err;
