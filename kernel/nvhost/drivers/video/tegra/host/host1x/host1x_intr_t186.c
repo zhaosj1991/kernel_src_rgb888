@@ -34,12 +34,37 @@ static void intr_enable_syncpt_intr(struct nvhost_intr *intr, u32 id);
 static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 					  u32 id, u32 thresh);
 
+
+extern s64 vi_sof_interval[100];
+s64 notify_sof[100];
+EXPORT_SYMBOL(notify_sof);
+
+u32 notify_sof_count = 0;
+EXPORT_SYMBOL(notify_sof_count);
+
+s64 notify_sof_time = 0;
+EXPORT_SYMBOL(notify_sof_time);
+
+u32 syncpt_thresh_count = 0;
+EXPORT_SYMBOL(syncpt_thresh_count);
+
+u32 rw_thresh = 100000;
+EXPORT_SYMBOL(rw_thresh);
+
+
+static s64 sof_time_temp = 0;
+static s64 delta = 0;
+
+extern u32 vi_notify_wait_time_count;
+
 static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 {
 	struct nvhost_master *dev = dev_id;
 	struct nvhost_intr *intr = &dev->intr;
 	unsigned long reg;
 	int i, id;
+	
+	//printk("host1x_intr_t186.c : syncpt_thresh_cascade_isr @@@@@@@@@@@\n");
 
 	for (i = 0; i < DIV_ROUND_UP(nvhost_syncpt_nb_hw_pts(&dev->syncpt), 32);
 			i++) {
@@ -64,6 +89,16 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 			sp = intr->syncpt + sp_id;
 			nvhost_ktime_get_ts(&sp->isr_recv);
 
+			if (vi_notify_wait_time_count > 0 && sp_id == 22 && notify_sof_count < 100){
+				notify_sof_time = (ktime_get()).tv64;
+				delta = notify_sof_time - sof_time_temp;
+				if (abs(delta - vi_sof_interval[0]) > rw_thresh)
+					notify_sof[notify_sof_count++] = delta;
+				sof_time_temp = notify_sof_time;
+			}
+
+			syncpt_thresh_count++;
+
 			/* handle graphics host syncpoint increments
 			 * immediately
 			 */
@@ -72,9 +107,14 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 					 __func__, graphics_host_sp);
 				nvhost_syncpt_patch_check(&dev->syncpt);
 				intr_syncpt_intr_ack(sp, false);
+		//		printk("host1x_intr_t186.c : graphics_host_sp  @@@@@@@@@@@ sp_id = %d graphics_host_sp = %d\n", 
+//					sp_id, graphics_host_sp);
 			} else {
 				intr_syncpt_intr_ack(sp, true);
 				nvhost_syncpt_thresh_fn(sp);
+		//		printk("host1x_intr_t186.c : no graphics_host_sp  @@@@@@@@@@@ sp_id = %d graphics_host_sp = %d\n", 
+	//				sp_id, graphics_host_sp);
+
 			}
 		}
 	}
@@ -184,6 +224,8 @@ static irqreturn_t intr_host1x_isr(int irq, void *dev_id)
 	struct nvhost_master *dev = intr_to_dev(intr);
 	u32 addr, i;
 	unsigned long intstat;
+
+	//printk("host1x_intr_t186.c : intr_host1x_isr @@@@@@@@@@@\n");
 
 	intstat = host1x_hypervisor_readl(dev->dev,
 			host1x_sync_intstatus_r());
@@ -344,6 +386,8 @@ static int intr_init(struct nvhost_intr *intr)
 {
 	struct nvhost_master *dev = intr_to_dev(intr);
 	int err;
+
+	//printk("host1x_intr_t186.c : intr_init @@@@@@@@@@@\n");
 
 	intr_op().disable_all_syncpt_intrs(intr);
 

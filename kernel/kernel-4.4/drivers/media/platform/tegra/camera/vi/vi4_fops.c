@@ -173,6 +173,9 @@ static bool vi4_check_status(struct tegra_channel *chan)
 	return true;
 }
 
+extern u32 notify_sof_count;
+extern u32 syncpt_thresh_count;
+
 u32 vi_notify_wait_time_count = 0;
 EXPORT_SYMBOL(vi_notify_wait_time_count);
 
@@ -182,6 +185,13 @@ EXPORT_SYMBOL(vi_notify_wait_time_delta);
 s64 vi_sof_interval[100];
 EXPORT_SYMBOL(vi_sof_interval);
 
+s64 vi_sof_interval_over[100];
+EXPORT_SYMBOL(vi_sof_interval_over);
+
+u32 vi_sof_interval_over_count = 0;
+EXPORT_SYMBOL(vi_sof_interval_over_count);
+
+static bool first_sof_flag = true;
 
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
@@ -247,14 +257,24 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 
 			sof_interval = status.sof_ts - temp_sof;
 
+			if (vi_notify_wait_time_count == 0 && !first_sof_flag)
+				vi_sof_interval[vi_notify_wait_time_count++] = sof_interval;
+
+			if (first_sof_flag)
+				first_sof_flag = false;
+
 			delta = (sof_timestamp - sof_stamp_temp - sof_interval) / 1000;
-			if (delta > 500 && vi_notify_wait_time_count < 100)
+			if (delta > 500 && vi_notify_wait_time_count < 100 && vi_notify_wait_time_count > 0)
 			{
 				//printk("exceed 1000, vi_notify_wait_time_count = %d  delta = %lld us\n", vi_notify_wait_time_count, delta);
 				vi_notify_wait_time_delta[vi_notify_wait_time_count] = delta;
 				vi_sof_interval[vi_notify_wait_time_count] = sof_interval;
 				vi_notify_wait_time_count++;
 			}
+
+			if (vi_notify_wait_time_count > 0 && vi_sof_interval_over_count < 100 
+				&& sof_interval > vi_sof_interval[0]*3/2)
+				vi_sof_interval_over[vi_sof_interval_over_count++] = sof_interval;
 
 			//if (count % 3000 == 0)
 				//printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
@@ -414,6 +434,10 @@ static int tegra_channel_notify_enable(
 	req.stream = chan->port[index];
 	req.vc = 0;
 	req.pad = 0;
+
+	
+	printk("@@@@@@@@@ syncpt_ids[0] = %d  syncpt_ids[1] = %d @@@@@@@@@\n", 
+					req.syncpt_ids[0], req.syncpt_ids[1]);
 
 	err = vi_notify_channel_enable_reports(
 		chan->vnc_id[index], chan->vnc[index], &req);
@@ -1154,6 +1178,11 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_frame = true;
 	vi_notify_wait_time_count = 0;
+	syncpt_thresh_count = 0;
+	notify_sof_count = 0;
+	vi_sof_interval_over_count = 0;
+
+	first_sof_flag = true;
 
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
