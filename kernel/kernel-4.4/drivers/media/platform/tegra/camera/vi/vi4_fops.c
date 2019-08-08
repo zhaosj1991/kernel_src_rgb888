@@ -1051,6 +1051,21 @@ static int tegra_channel_update_clknbw(struct tegra_channel *chan, u8 on)
 	return 0;
 }
 
+extern u32 nvhost_syncpt_wait1;
+extern u32 nvhost_syncpt_wait2;
+extern u32 nvhost_syncpt_wait3;
+extern u32 nvhost_syncpt_wait4;
+extern u32 nvhost_syncpt_wait5;
+
+extern u32 process_wait_empty_num;
+extern u32 process_wait_no_empty_num;
+
+extern u32 completed_waiters_count_0;
+extern u32 completed_waiters_count_1;
+
+extern u32 sof_enable_count;
+extern u32 eof_enable_count;
+
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
@@ -1184,6 +1199,21 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	first_sof_flag = true;
 
+	nvhost_syncpt_wait1 = 0;
+	nvhost_syncpt_wait2 = 0;
+	nvhost_syncpt_wait3 = 0;
+	nvhost_syncpt_wait4 = 0;
+	nvhost_syncpt_wait5 = 0;
+
+	process_wait_empty_num = 0;
+	process_wait_no_empty_num = 0;
+
+	completed_waiters_count_0 = 0;
+	completed_waiters_count_1 = 0;
+
+	sof_enable_count = 0;
+	eof_enable_count = 0;
+	
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
 					tegra_channel_kthread_capture_start,

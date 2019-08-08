@@ -314,6 +314,8 @@ static int host1x_channel_submit(struct nvhost_job *job)
 	int err, i;
 	void *completed_waiters[job->num_syncpts];
 
+	printk("host1x_channel.c : host1x_channel_submit <<<<<<<<\n");
+
 	memset(completed_waiters, 0, sizeof(void *) * job->num_syncpts);
 
 	/* Turn on the client module and host1x */

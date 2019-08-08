@@ -98,13 +98,20 @@ static bool add_waiter_to_queue(struct nvhost_waitlist *waiter,
 	return true;
 }
 
+u32 completed_waiters_count_0 = 0;
+EXPORT_SYMBOL(completed_waiters_count_0);
+
+u32 completed_waiters_count_1 = 0;
+EXPORT_SYMBOL(completed_waiters_count_1);
+
+
 /**
  * run through a waiter queue for a single sync point ID
  * and gather all completed waiters into lists by actions
  */
 static void remove_completed_waiters(struct list_head *head, u32 sync,
 			struct timespec isr_recv,
-			struct list_head *completed[NVHOST_INTR_ACTION_COUNT])
+			struct list_head *completed[NVHOST_INTR_ACTION_COUNT], int id)
 {
 	struct list_head *dest;
 	struct nvhost_waitlist *waiter, *next, *prev;
@@ -121,6 +128,7 @@ static void remove_completed_waiters(struct list_head *head, u32 sync,
 		/* consolidate submit cleanups */
 		if (waiter->action == NVHOST_INTR_ACTION_SUBMIT_COMPLETE
 			&& !list_empty(dest)) {
+			printk("nvhost_intr.c : remove_completed_waiters &&&&&&&&&& 0\n");
 			prev = list_entry(dest->prev,
 					struct nvhost_waitlist, list);
 			if (prev->data == waiter->data) {
@@ -136,10 +144,17 @@ static void remove_completed_waiters(struct list_head *head, u32 sync,
 		 */
 		if ((atomic_inc_return(&waiter->state) == WLS_HANDLED)
 								|| removed) {
+		//	printk("nvhost_intr.c : remove_completed_waiters &&&&&&&&&& 1\n");
+			if (id == 22 || id == 23)
+				completed_waiters_count_0++;
 			atomic_set(&waiter->state, WLS_CLEANUP);
 			list_move(&waiter->list, dest);
-		} else
+		} else{
+			if (id == 22 || id == 23)
+				completed_waiters_count_1++;
+			//printk("nvhost_intr.c : remove_completed_waiters &&&&&&&&&& 2\n");
 			list_move_tail(&waiter->list, dest);
+		}
 	}
 }
 
@@ -187,7 +202,8 @@ static void action_wakeup(struct nvhost_waitlist *waiter)
 {
 	wait_queue_head_t *wq = &waiter->wq;
 
-	WARN_ON(atomic_xchg(&waiter->state, WLS_HANDLED) != WLS_REMOVED);
+	//WARN_ON(atomic_xchg(&waiter->state, WLS_HANDLED) != WLS_REMOVED);
+	atomic_xchg(&waiter->state, WLS_HANDLED);
 	wake_up(wq);
 }
 
@@ -207,7 +223,8 @@ static void action_wakeup_interruptible(struct nvhost_waitlist *waiter)
 {
 	wait_queue_head_t *wq = &waiter->wq;
 
-	WARN_ON(atomic_xchg(&waiter->state, WLS_HANDLED) != WLS_REMOVED);
+//	WARN_ON(atomic_xchg(&waiter->state, WLS_HANDLED) != WLS_REMOVED);
+	atomic_xchg(&waiter->state, WLS_HANDLED);
 	wake_up_interruptible(wq);
 }
 
@@ -261,6 +278,13 @@ cleanup:
 	}
 }
 
+u32 process_wait_empty_num = 0;
+EXPORT_SYMBOL(process_wait_empty_num);
+
+u32 process_wait_no_empty_num = 0;
+EXPORT_SYMBOL(process_wait_no_empty_num);
+
+
 /**
  * Remove & handle all waiters that have completed for the given syncpt
  */
@@ -289,18 +313,24 @@ static int process_wait_list(struct nvhost_intr *intr,
 
 	/* this functions fills completed data */
 	remove_completed_waiters(&syncpt->wait_head, threshold,
-		syncpt->isr_recv, completed);
+		syncpt->isr_recv, completed, syncpt - intr->syncpt);
 
 	/* check if there are still waiters left */
 	empty = list_empty(&syncpt->wait_head);
 
 	/* if not, disable interrupt. If yes, update the inetrrupt */
-	if (empty)
+	if (empty){
+		if (syncpt - intr->syncpt == 22)
+			process_wait_empty_num++;
 		intr_op().disable_syncpt_intr(intr, syncpt->id);
-	else
+	}
+	else{
+		if (syncpt - intr->syncpt == 22)
+			process_wait_no_empty_num++;
 		reset_threshold_interrupt(intr, &syncpt->wait_head,
-					  syncpt->id);
-
+			  syncpt->id);
+	}
+	
 	/* remove low priority handlers from this list */
 	for (i = NVHOST_INTR_HIGH_PRIO_COUNT;
 	     i < NVHOST_INTR_ACTION_COUNT; ++i) {
@@ -406,6 +436,21 @@ bool nvhost_intr_has_pending_jobs(struct nvhost_intr *intr, u32 id,
 	return res;
 }
 
+u32 enable_time_thresh = 1600000;
+EXPORT_SYMBOL(enable_time_thresh);
+
+s64 sof_enable_time[100];
+EXPORT_SYMBOL(sof_enable_time);
+
+u32 sof_enable_count = 0;
+EXPORT_SYMBOL(sof_enable_count);
+
+s64 eof_enable_time[100];
+EXPORT_SYMBOL(eof_enable_time);
+
+u32 eof_enable_count = 0;
+EXPORT_SYMBOL(eof_enable_count);
+
 int nvhost_intr_add_action(struct nvhost_intr *intr, u32 id, u32 thresh,
 			enum nvhost_intr_action action, void *data,
 			void *_waiter,
@@ -415,6 +460,12 @@ int nvhost_intr_add_action(struct nvhost_intr *intr, u32 id, u32 thresh,
 	struct nvhost_intr_syncpt *syncpt;
 	int queue_was_empty;
 	int err;
+	s64 sof_time = 0;
+	static s64 sof_time_tmp = 0;
+	s64 eof_time = 0;
+	static s64 eof_time_tmp = 0;
+
+	//printk("nvhost_intr.c : nvhost_intr_add_action @@@@@@@@@@@@\nss");
 
 	if (waiter == NULL) {
 		pr_warn("%s: NULL waiter\n", __func__);
@@ -450,8 +501,20 @@ int nvhost_intr_add_action(struct nvhost_intr *intr, u32 id, u32 thresh,
 		intr_op().set_syncpt_threshold(intr, id, thresh);
 
 		/* added as first waiter - enable interrupt */
-		if (queue_was_empty)
+		if (queue_was_empty){
 			intr_op().enable_syncpt_intr(intr, id);
+			if (id == 22 && sof_enable_count < 100){
+				sof_time = (ktime_get()).tv64;
+				if (sof_time - sof_time_tmp > enable_time_thresh)
+					sof_enable_time[sof_enable_count++] = sof_time - sof_time_tmp;
+				sof_time_tmp = sof_time;
+			}else if (id == 23 && eof_enable_count < 100){
+				eof_time = (ktime_get()).tv64;
+				if (eof_time - eof_time_tmp > enable_time_thresh)
+					eof_enable_time[eof_enable_count++] = eof_time - eof_time_tmp;
+				eof_time_tmp = eof_time;
+			}
+		}
 	}
 
 	spin_unlock(&syncpt->lock);

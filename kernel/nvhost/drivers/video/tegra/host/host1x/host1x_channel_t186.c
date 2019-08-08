@@ -387,6 +387,8 @@ static int host1x_channel_submit(struct nvhost_job *job)
 	void *completed_waiters[job->num_syncpts];
 	int streamid;
 
+	printk("host1x_channel_t186.c : host1x_channel_submit <<<<<<<<\n");
+
 	memset(completed_waiters, 0, sizeof(void *) * job->num_syncpts);
 
 	/* Turn on the client module and host1x */

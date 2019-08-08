@@ -211,6 +211,23 @@ static bool syncpt_update_min_is_expired(
 	return nvhost_syncpt_is_expired(sp, id, thresh);
 }
 
+u32 nvhost_syncpt_wait1 = 0;
+EXPORT_SYMBOL(nvhost_syncpt_wait1);
+
+u32 nvhost_syncpt_wait2 = 0;
+EXPORT_SYMBOL(nvhost_syncpt_wait2);
+
+u32 nvhost_syncpt_wait3 = 0;
+EXPORT_SYMBOL(nvhost_syncpt_wait3);
+
+u32 nvhost_syncpt_wait4 = 0;
+EXPORT_SYMBOL(nvhost_syncpt_wait4);
+
+u32 nvhost_syncpt_wait5 = 0;
+EXPORT_SYMBOL(nvhost_syncpt_wait5);
+
+
+
 /**
  * Main entrypoint for syncpoint value waits.
  */
@@ -248,6 +265,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* first check cache */
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
+		nvhost_syncpt_wait1++;
 		if (value)
 			*value = nvhost_syncpt_read_min(sp, id);
 		if (ts)
@@ -263,6 +281,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	/* try to read from register */
 	val = syncpt_op().update_min(sp, id);
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
+		nvhost_syncpt_wait2++;
 		if (value)
 			*value = val;
 		if (ts)
@@ -333,15 +352,21 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 			remain = msecs_to_jiffies((loops - i) *
 							SYNCPT_POLL_PERIOD);
-
-		} else if (interruptible)
+			
+			nvhost_syncpt_wait3++;
+		} else if (interruptible){
 			remain = wait_event_interruptible_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
-		else
+			nvhost_syncpt_wait4++;
+			}
+		else{
 			remain = wait_event_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
+			nvhost_syncpt_wait5++;
+		}
+			
 		if (remain > 0 ||
 			syncpt_update_min_is_expired(sp, id, thresh)) {
 			if (value)
@@ -397,6 +422,181 @@ done:
 	nvhost_module_idle(syncpt_to_dev(sp)->dev);
 	return err;
 }
+
+/**
+ * Main entrypoint for syncpoint value waits.
+ */
+int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
+			u32 thresh, u32 timeout, u32 *value,
+			struct timespec *ts, bool interruptible)
+{
+	void *ref = NULL;
+	struct nvhost_waitlist *waiter = NULL;
+	int err = 0, check_count = 0, low_timeout = 0;
+	u32 val, old_val, new_val;
+	struct nvhost_master *host;
+	bool syncpt_poll = false;
+	bool (*syncpt_is_expired)(struct nvhost_syncpt *sp,
+			u32 id,
+			u32 thresh);
+
+	sp = nvhost_get_syncpt_owner_struct(id, sp);
+	host = syncpt_to_dev(sp);
+
+	if (!id || !nvhost_syncpt_is_valid_hw_pt(sp, id))
+		return -EINVAL;
+
+
+	/*
+	 * In case when syncpoint belongs to a remote VM host1x hardware
+	 * does not allow to set up threshold interrupt locally and polling
+	 * is required.
+	 */
+	if (!nvhost_dev_is_virtual(host->dev))
+		syncpt_poll = !nvhost_syncpt_is_valid_pt(sp, id);
+
+	if (value)
+		*value = 0;
+
+	/* keep host alive */
+	err = nvhost_module_busy(syncpt_to_dev(sp)->dev);
+	if (err)
+		return err;
+
+	if (!timeout) {
+		err = -EAGAIN;
+		goto done;
+	}
+
+	old_val = val;
+
+	/* Set up a threshold interrupt waiter */
+	if (!syncpt_poll) {
+
+		/* schedule a wakeup when the syncpoint value is reached */
+		waiter = nvhost_intr_alloc_waiter();
+		if (!waiter) {
+			err = -ENOMEM;
+			goto done;
+		}
+
+		err = nvhost_intr_add_action(&(syncpt_to_dev(sp)->intr), id,
+				thresh,
+				interruptible ?
+				  NVHOST_INTR_ACTION_WAKEUP_INTERRUPTIBLE :
+				  NVHOST_INTR_ACTION_WAKEUP,
+				&waiter->wq,
+				waiter,
+				&ref);
+		if (err)
+			goto done;
+	}
+
+	err = -EAGAIN;
+	/* Caller-specified timeout may be impractically low */
+	if (timeout < SYNCPT_CHECK_PERIOD)
+		low_timeout = timeout;
+
+	if (nvhost_dev_is_virtual(host->dev))
+		syncpt_is_expired = nvhost_syncpt_is_expired;
+	else
+		syncpt_is_expired = syncpt_update_min_is_expired;
+
+	/* wait for the syncpoint, or timeout, or signal */
+	while (timeout) {
+		u32 check = min_t(u32, SYNCPT_CHECK_PERIOD, timeout);
+		int remain;
+
+		if (syncpt_poll) {
+			unsigned int check_ms;
+			unsigned int loops;
+			int i;
+
+			check_ms = jiffies_to_msecs(check);
+			loops = DIV_ROUND_UP(check_ms, SYNCPT_POLL_PERIOD);
+
+			for (i = 0; i < loops; i++) {
+				if (syncpt_is_expired(sp, id, thresh))
+					break;
+
+				usleep_range(SYNCPT_POLL_PERIOD*1000,
+						SYNCPT_POLL_PERIOD*1000);
+
+			}
+
+			remain = msecs_to_jiffies((loops - i) *
+							SYNCPT_POLL_PERIOD);
+			
+			nvhost_syncpt_wait3++;
+		} else if (interruptible){
+			remain = wait_event_interruptible_timeout(waiter->wq,
+				syncpt_is_expired(sp, id, thresh),
+				check);
+			nvhost_syncpt_wait4++;
+			}
+		else{
+			remain = wait_event_timeout(waiter->wq,
+				syncpt_is_expired(sp, id, thresh),
+				check);
+			nvhost_syncpt_wait5++;
+		}
+			
+		if (remain > 0 ||
+			syncpt_update_min_is_expired(sp, id, thresh)) {
+			if (value)
+				*value = nvhost_syncpt_read_min(sp, id);
+			if (ref && ts) {
+				err = nvhost_intr_release_time(ref, ts);
+				if (err)
+					nvhost_ktime_get_ts(ts);
+			}
+
+			err = 0;
+			break;
+		}
+		if (remain < 0) {
+			err = remain;
+			break;
+		}
+		if (timeout != NVHOST_NO_TIMEOUT)
+			timeout -= check;
+		if (timeout && check_count <= MAX_STUCK_CHECK_COUNT) {
+			new_val = syncpt_op().update_min(sp, id);
+			if (old_val == new_val) {
+				dev_warn(&syncpt_to_dev(sp)->dev->dev,
+					"%s: syncpoint id %d (%s) stuck waiting %d, timeout=%d\n",
+					 current->comm, id,
+					 syncpt_op().name(sp, id),
+					 thresh, timeout);
+				nvhost_syncpt_debug(sp);
+			} else {
+				old_val = new_val;
+				dev_warn(&syncpt_to_dev(sp)->dev->dev,
+					"%s: syncpoint id %d (%s) progressing slowly %d, timeout=%d\n",
+					 current->comm, id,
+					 syncpt_op().name(sp, id),
+					 thresh, timeout);
+			}
+			if (check_count == MAX_STUCK_CHECK_COUNT) {
+				if (low_timeout) {
+					dev_warn(&syncpt_to_dev(sp)->dev->dev,
+						"is timeout %d too low?\n",
+						low_timeout);
+				}
+				nvhost_debug_dump(syncpt_to_dev(sp));
+			}
+			check_count++;
+		}
+	}
+
+	if (!syncpt_poll)
+		nvhost_intr_put_ref(&(syncpt_to_dev(sp)->intr), id, ref);
+
+done:
+	nvhost_module_idle(syncpt_to_dev(sp)->dev);
+	return err;
+}
+
 
 /**
  * Returns true if syncpoint is expired, false if we may need to wait
@@ -1409,7 +1609,11 @@ int nvhost_syncpt_wait_timeout_ext(struct platform_device *dev, u32 id,
 	struct nvhost_master *master = nvhost_get_host(dev);
 	struct nvhost_syncpt *sp =
 		nvhost_get_syncpt_owner_struct(id, &master->syncpt);
-	return nvhost_syncpt_wait_timeout(sp, id, thresh, timeout, value, ts,
+	if (id == 22 || id == 23)
+		return nvhost_syncpt_wait_timeout_tmp(sp, id, thresh, timeout, value, ts,
+			false);
+	else
+		return nvhost_syncpt_wait_timeout(sp, id, thresh, timeout, value, ts,
 			false);
 }
 EXPORT_SYMBOL(nvhost_syncpt_wait_timeout_ext);

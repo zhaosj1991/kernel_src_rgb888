@@ -131,6 +131,7 @@ static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 	u32 id, u32 thresh)
 {
 	struct nvhost_master *dev = intr_to_dev(intr);
+	//printk("host1x_intr_t186.c: intr_set_syncpt_threshold&&&&&&&&&&&&\n");
 	host1x_writel(dev->dev,
 		(host1x_sync_syncpt_int_thresh_0_r() + id * REGISTER_STRIDE),
 		thresh);
@@ -140,6 +141,8 @@ static void intr_enable_syncpt_intr(struct nvhost_intr *intr, u32 id)
 {
 	struct nvhost_master *dev = intr_to_dev(intr);
 	u32 thresh;
+
+	//printk("host1x_intr_t186.c: intr_enable_syncpt_intr&&&&&&&&&&&&\n");
 
 	host1x_writel(dev->dev,
 			host1x_sync_syncpt_thresh_int_enable_cpu0_r() +
@@ -339,6 +342,8 @@ static int intr_debug_dump(struct nvhost_intr *intr, struct output *o)
 static void intr_resume(struct nvhost_intr *intr)
 {
 	struct nvhost_master *dev = intr_to_dev(intr);
+
+	printk("host1x_intr_t186.c: intr_resume&&&&&&&&&&&&\n");
 
 	/* increase the auto-ack timout to the maximum value. 2d will hang
 	 * otherwise on ap20.

@@ -33,6 +33,7 @@ static void t20_syncpt_reset(struct nvhost_syncpt *sp, u32 id)
 {
 	struct nvhost_master *dev = syncpt_to_dev(sp);
 	int min = nvhost_syncpt_read_min(sp, id);
+	printk("host1x_syncpt.c: t20_syncpt_reset&&&&&&&&&&&&\n");
 	host1x_sync_writel(dev, (host1x_sync_syncpt_0_r() + id * 4), min);
 }
 
@@ -63,6 +64,8 @@ static void t20_syncpt_cpu_incr(struct nvhost_syncpt *sp, u32 id)
 	struct nvhost_master *dev = syncpt_to_dev(sp);
 	u32 reg_offset = id / 32;
 
+	printk("host1x_syncpt.c: t20_syncpt_cpu_incr&&&&&&&&&&&&\n");
+
 	if (!nvhost_syncpt_client_managed(sp, id)
 			&& nvhost_syncpt_min_eq_max(sp, id)) {
 		dev_err(&syncpt_to_dev(sp)->dev->dev,
@@ -81,6 +84,8 @@ static int host1x_syncpt_patch_wait(struct nvhost_syncpt *sp,
 {
 	u32 current_value = __raw_readl(patch_addr);
 	bool obsolete = !!((current_value >> 24) & 0xff);
+
+	printk("host1x_syncpt.c: host1x_syncpt_patch_wait&&&&&&&&&&&&\n");
 
 	/* Is wait 16bit or 32bit? */
 	if (obsolete) {
