@@ -56,6 +56,22 @@ static ssize_t vi_sof_interval_over_show(struct kobject *kobj, struct kobj_attri
    return sprintf(buf, "%s", wait_time_temp);
 }
 
+extern s64 vi_eof_interval_over[100];
+extern u32 vi_eof_interval_over_count;
+
+static ssize_t vi_eof_interval_over_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int i = 0;
+    char wait_time_temp[3000];
+
+    wait_time_temp[0] = '\0';
+    
+    for (i = 0; i < vi_eof_interval_over_count; ++i)
+        sprintf(wait_time_temp, "%s%lld:%lld\n", wait_time_temp, vi_sof_interval[0], vi_eof_interval_over[i]);
+
+   return sprintf(buf, "%s", wait_time_temp);
+}
+
 extern u32 nvhost_syncpt_wait1;
 extern u32 nvhost_syncpt_wait2;
 extern u32 nvhost_syncpt_wait3;
@@ -130,6 +146,7 @@ static ssize_t eof_enable_time_show(struct kobject *kobj, struct kobj_attribute 
 static struct kobj_attribute rw_thresh_attr = __ATTR(rw_thresh_value, 0664, rw_thresh_show, rw_thresh_store);
 static struct kobj_attribute sof_notify_attr = __ATTR(sof_notify_value, 0444, sof_notify_show, NULL);
 static struct kobj_attribute vi_sof_interval_over_attr = __ATTR(vi_sof_interval_over_value, 0444, vi_sof_interval_over_show, NULL);
+static struct kobj_attribute vi_eof_interval_over_attr = __ATTR(vi_eof_interval_over_value, 0444, vi_eof_interval_over_show, NULL);
 static struct kobj_attribute nvhost_syncpt_wait_count_attr = __ATTR(nvhost_syncpt_wait_count, 0444, nvhost_syncpt_wait_count_show, NULL);
 
 static struct kobj_attribute enable_time_thresh_attr = __ATTR(enable_time_thresh_value, 0664, enable_time_thresh_show, enable_time_thresh_store);
@@ -144,6 +161,7 @@ static struct attribute *attrs[] = {
 	&rw_thresh_attr.attr,
 	&sof_notify_attr.attr,
    &vi_sof_interval_over_attr.attr,
+   &vi_eof_interval_over_attr.attr,
    &nvhost_syncpt_wait_count_attr.attr,
    &enable_time_thresh_attr.attr,
    &sof_enable_time_attr.attr,
