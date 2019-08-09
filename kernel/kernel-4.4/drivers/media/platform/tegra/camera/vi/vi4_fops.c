@@ -197,7 +197,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	struct timespec *ts)
 {
 	int i, err;
-	u32 thresh[TEGRA_CSI_BLOCKS], temp;
+	u32 thresh[TEGRA_CSI_BLOCKS]/*, temp*/;
 	static u64 temp_sof = 0;
 	static u64 count = 0;
 
@@ -212,12 +212,12 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	 * This is needed in order to keep the syncpt max up to date,
 	 * even if we are not waiting for ATOMP_FE here
 	 */
-	for (i = 0; i < chan->valid_ports; i++){
+	/*for (i = 0; i < chan->valid_ports; i++){
 		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
 					chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		memcpy(&buf->thresh[0], &temp,
                         TEGRA_CSI_BLOCKS * sizeof(u32));
-	}
+	}*/
 
 	/*
 	 * Increment syncpt for PXL_SOF
@@ -584,6 +584,15 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	int restart_version = 0;
 	int err = false;
 	int i;
+	u32 temp = 0;
+
+	for (i = 0; i < chan->valid_ports; i++){
+		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+					chan->syncpt[i][FE_SYNCPT_IDX], 1);
+		memcpy(&buf2->thresh[0], &temp,
+                        TEGRA_CSI_BLOCKS * sizeof(u32));
+	}
+	enqueue_inflight(chan, buf2);
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf1, i);
@@ -623,7 +632,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		 * current capture version
 		 */
 		buf1->version = chan->capture_version;
-		enqueue_inflight(chan, buf2);
+		//enqueue_inflight(chan, buf2);
 	} else {
 		release_buffer(chan, buf2);
 		atomic_inc(&chan->restart_version);
@@ -699,6 +708,11 @@ static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
 	return 0;
 }
 
+s64 vi_eof_interval_over[100];
+EXPORT_SYMBOL(vi_eof_interval_over);
+
+u32 vi_eof_interval_over_count = 0;
+EXPORT_SYMBOL(vi_eof_interval_over_count);
 
 static void tegra_channel_release_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
@@ -707,6 +721,9 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	int index;
 	int err = 0;
 	int restart_version = 0;
+	s64 eof_time = 0;
+	s64 eof_interval = 0;
+	static s64 eof_time_temp = 0;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -731,6 +748,16 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 			dev_err(&chan->video.dev,
 				"MW_ACK_DONE syncpoint time out!%d\n", index);
 	}
+
+	eof_time = (ktime_get()).tv64;
+	eof_interval = eof_time - eof_time_temp;
+	
+	if (vi_notify_wait_time_count > 0 && vi_eof_interval_over_count < 100 
+					&& eof_interval > vi_sof_interval[0]*3/2)
+					vi_eof_interval_over[vi_eof_interval_over_count++] = eof_interval;
+
+	eof_time_temp = eof_time;
+	
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
 
@@ -1196,6 +1223,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	syncpt_thresh_count = 0;
 	notify_sof_count = 0;
 	vi_sof_interval_over_count = 0;
+	vi_eof_interval_over_count = 0;
 
 	first_sof_flag = true;
 

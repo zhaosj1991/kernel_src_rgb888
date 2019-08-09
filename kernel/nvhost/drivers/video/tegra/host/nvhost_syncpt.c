@@ -1609,10 +1609,10 @@ int nvhost_syncpt_wait_timeout_ext(struct platform_device *dev, u32 id,
 	struct nvhost_master *master = nvhost_get_host(dev);
 	struct nvhost_syncpt *sp =
 		nvhost_get_syncpt_owner_struct(id, &master->syncpt);
-	if (id == 22 || id == 23)
+	/*if (id == 22 || id == 23)
 		return nvhost_syncpt_wait_timeout_tmp(sp, id, thresh, timeout, value, ts,
 			false);
-	else
+	else*/
 		return nvhost_syncpt_wait_timeout(sp, id, thresh, timeout, value, ts,
 			false);
 }
