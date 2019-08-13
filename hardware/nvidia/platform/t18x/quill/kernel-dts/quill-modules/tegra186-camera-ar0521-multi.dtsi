@@ -30,7 +30,7 @@
 						status = "okay";
 						csi-port = <0>;
 						bus-width = <4>;
-						remote-endpoint = <&e3333_csi_out0>;
+						remote-endpoint = <&ar0521_csi_out0>;
 					};
 				};
 				port@1 {
@@ -40,7 +40,7 @@
 						status = "okay";
 						csi-port = <2>;
 						bus-width = <4>;
-						remote-endpoint = <&e3333_csi_out1>;
+						remote-endpoint = <&ar0521_csi_out1>;
 					};
 				};
 				port@2 {
@@ -50,7 +50,7 @@
 						status = "okay";
 						csi-port = <4>;
 						bus-width = <4>;
-						remote-endpoint = <&e3333_csi_out2>;
+						remote-endpoint = <&ar0521_csi_out2>;
 					};
 				};
 			};
@@ -68,7 +68,7 @@
 					port@0 {
 						status = "okay";
 						reg = <0>;
-						e3333_csi_in0: endpoint@0 {
+						ar0521_csi_in0: endpoint@0 {
 							status = "okay";
 							csi-port = <0>;
 							bus-width = <4>;
@@ -78,7 +78,7 @@
 					port@1 {
 						status = "okay";
 						reg = <1>;
-						e3333_csi_out0: endpoint@1 {
+						ar0521_csi_out0: endpoint@1 {
 							status = "okay";
 							remote-endpoint = <&ar0521_vi_in0>;
 						};
@@ -94,7 +94,7 @@
 					port@0 {
 						status = "okay";
 						reg = <0>;
-						e3333_csi_in1: endpoint@2 {
+						ar0521_csi_in1: endpoint@2 {
 							status = "okay";
 							csi-port = <2>;
 							bus-width = <4>;
@@ -104,7 +104,7 @@
 					port@1 {
 						status = "okay";
 						reg = <1>;
-						e3333_csi_out1: endpoint@3 {
+						ar0521_csi_out1: endpoint@3 {
 							status = "okay";
 							remote-endpoint = <&ar0521_vi_in1>;
 						};
@@ -120,7 +120,7 @@
 					port@0 {
 						status = "okay";
 						reg = <0>;
-						e3333_csi_in2: endpoint@4 {
+						ar0521_csi_in2: endpoint@4 {
 							status = "okay";
 							csi-port = <4>;
 							bus-width = <4>;
@@ -130,7 +130,7 @@
 					port@1 {	
 						status = "okay";
 						reg = <1>;
-						e3333_csi_out2: endpoint@5 {
+						ar0521_csi_out2: endpoint@5 {
 							status = "okay";
 							remote-endpoint = <&ar0521_vi_in2>;
 						};
@@ -143,7 +143,7 @@
 	i2c@3180000 {
 		tca9548@77 {
 			i2c@0 {
-				ov5693_a@36 {
+				ar0521_a@36 {
 					status = "okay";
 					compatible = "daheng,ar0521";
 					/* I2C device address */
@@ -311,7 +311,7 @@
 			};
 
 			i2c@1 {
-				ov5693_b@36 {
+				ar0521_b@36 {
 					status = "okay";
 					compatible = "daheng,ar0521";
 					/* I2C device address */
@@ -395,9 +395,9 @@
 							reg = <0>;
 							ar0521_out1: endpoint {
 								status = "okay";
-								csi-port = <0>;
+								csi-port = <2>;
 								bus-width = <4>;
-								remote-endpoint = <&ar0521_csi_in0>;
+								remote-endpoint = <&ar0521_csi_in1>;
 							};
 						};
 					};
@@ -405,7 +405,7 @@
 			};
 
 			i2c@2 {
-				ov5693_c@36 {
+				ar0521_c@36 {
 					status = "okay";
 					compatible = "daheng,ar0521";
 					/* I2C device address */
@@ -489,9 +489,9 @@
 							reg = <0>;
 							ar0521_out2: endpoint {
 								status = "okay";
-								csi-port = <0>;
+								csi-port = <4>;
 								bus-width = <4>;
-								remote-endpoint = <&ar0521_csi_in0>;
+								remote-endpoint = <&ar0521_csi_in2>;
 							};
 						};
 					};
@@ -550,33 +550,39 @@
 		*/
 		modules {
 			module0 {
-				badge = "e3333_bottomleft_P5V27C";
-				position = "bottomleft";
+				status = "okay";
+				badge = "daheng_ar0521";
+				position = "rear";
 				orientation = "1";
 				drivernode0 {
+					status = "okay";
 					pcl_id = "v4l2_sensor";
-					devname = "ov5693 30-0036";
-					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@0/ov5693_a@36";
+					devname = "ar0521 30-0036";
+					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@0/ar0521_a@36";
 				};
 			};
 			module1 {
-				badge = "e3333_centerleft_P5V27C";
-				position = "centerleft";
+				status = "okay";
+				badge = "daheng_ar0521";
+				position = "rear";
 				orientation = "1";
 				drivernode0 {
+					status = "okay";
 					pcl_id = "v4l2_sensor";
-					devname = "ov5693 31-0036";
-					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@1/ov5693_b@36";
+					devname = "ar0521 31-0036";
+					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@1/ar0521_b@36";
 				};
 			};
 			module2 {
-				badge = "e3333_centerright_P5V27C";
-				position = "centerright";
+				status = "okay";
+				badge = "daheng_ar0521";
+				position = "rear";
 				orientation = "1";
 				drivernode0 {
+					status = "okay";
 					pcl_id = "v4l2_sensor";
-					devname = "ov5693 32-0036";
-					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@2/ov5693_c@36";
+					devname = "ar0521 32-0036";
+					proc-device-tree = "/proc/device-tree/i2c@3180000/tca9548@77/i2c@2/ar0521_c@36";
 				};
 			};
 		};
