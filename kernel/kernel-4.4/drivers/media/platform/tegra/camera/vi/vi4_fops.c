@@ -185,8 +185,17 @@ EXPORT_SYMBOL(vi_notify_wait_time_delta);
 s64 vi_sof_interval[100];
 EXPORT_SYMBOL(vi_sof_interval);
 
+s64 vi_sof_interval_temp[100];
+EXPORT_SYMBOL(vi_sof_interval_temp);
+
+u32 vi_sof_interval_temp_count = 0;
+EXPORT_SYMBOL(vi_sof_interval_temp_count);
+
 s64 vi_sof_interval_over[100];
 EXPORT_SYMBOL(vi_sof_interval_over);
+
+s64 vi_sof_interval_over_temp[100];
+EXPORT_SYMBOL(vi_sof_interval_over_temp);
 
 u32 vi_sof_interval_over_count = 0;
 EXPORT_SYMBOL(vi_sof_interval_over_count);
@@ -204,7 +213,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	static s64 sof_interval = 0;
 	static s64 sof_timestamp = 0;
 	static s64 sof_stamp_temp = 0;
-	s64 delta = 0;
+	s64 delta_stamp = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -263,18 +272,26 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 			if (first_sof_flag)
 				first_sof_flag = false;
 
-			delta = (sof_timestamp - sof_stamp_temp - sof_interval) / 1000;
-			if (delta > 500 && vi_notify_wait_time_count < 100 && vi_notify_wait_time_count > 0)
+			if (vi_notify_wait_time_count > 0 && vi_notify_wait_time_count < 100 
+				&& sof_interval > vi_sof_interval[0]*3/2)
 			{
 				//printk("exceed 1000, vi_notify_wait_time_count = %d  delta = %lld us\n", vi_notify_wait_time_count, delta);
-				vi_notify_wait_time_delta[vi_notify_wait_time_count] = delta;
+				vi_notify_wait_time_delta[vi_notify_wait_time_count] = sof_interval;
 				vi_sof_interval[vi_notify_wait_time_count] = sof_interval;
 				vi_notify_wait_time_count++;
 			}
 
+			delta_stamp = sof_timestamp - sof_stamp_temp;
 			if (vi_notify_wait_time_count > 0 && vi_sof_interval_over_count < 100 
+				&& delta_stamp > vi_sof_interval[0]*3/2){
+				vi_sof_interval_over[vi_sof_interval_over_count] = delta_stamp;
+				vi_sof_interval_over_temp[vi_sof_interval_over_count] = sof_interval;
+				vi_sof_interval_over_count++;
+			}
+
+			if (vi_notify_wait_time_count > 0 && vi_sof_interval_temp_count< 100 
 				&& sof_interval > vi_sof_interval[0]*3/2)
-				vi_sof_interval_over[vi_sof_interval_over_count++] = sof_interval;
+				vi_sof_interval_temp[vi_sof_interval_temp_count++] = sof_interval;
 
 			//if (count % 3000 == 0)
 				//printk("#### count = %lld  sof interval time = %lld\n", count, status.sof_ts - temp_sof);
@@ -1093,6 +1110,8 @@ extern u32 completed_waiters_count_1;
 extern u32 sof_enable_count;
 extern u32 eof_enable_count;
 
+extern u32 waiter_thresh_break_count;
+
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
@@ -1223,6 +1242,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	syncpt_thresh_count = 0;
 	notify_sof_count = 0;
 	vi_sof_interval_over_count = 0;
+	vi_sof_interval_temp_count = 0;
 	vi_eof_interval_over_count = 0;
 
 	first_sof_flag = true;
@@ -1241,6 +1261,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	sof_enable_count = 0;
 	eof_enable_count = 0;
+
+	waiter_thresh_break_count = 0;
 	
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(

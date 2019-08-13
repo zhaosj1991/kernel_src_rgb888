@@ -105,6 +105,18 @@ u32 completed_waiters_count_1 = 0;
 EXPORT_SYMBOL(completed_waiters_count_1);
 
 
+u32 waiter_thresh_break_count = 0;
+EXPORT_SYMBOL(waiter_thresh_break_count);
+
+int waiter_thresh_break_id[100];
+EXPORT_SYMBOL(waiter_thresh_break_id);
+
+u32 waiter_thresh_break_waiter_thresh[100];
+EXPORT_SYMBOL(waiter_thresh_break_waiter_thresh);
+
+u32 waiter_thresh_break_sync[100];
+EXPORT_SYMBOL(waiter_thresh_break_sync);
+
 /**
  * run through a waiter queue for a single sync point ID
  * and gather all completed waiters into lists by actions
@@ -119,8 +131,15 @@ static void remove_completed_waiters(struct list_head *head, u32 sync,
 	list_for_each_entry_safe(waiter, next, head, list) {
 		bool removed = false;
 
-		if ((s32)(waiter->thresh - sync) > 0)
+		if ((s32)(waiter->thresh - sync) > 0){
+			if (waiter_thresh_break_count < 100){
+				waiter_thresh_break_id[waiter_thresh_break_count] = id;
+				waiter_thresh_break_waiter_thresh[waiter_thresh_break_count] = waiter->thresh;
+				waiter_thresh_break_sync[waiter_thresh_break_count] = sync;
+				waiter_thresh_break_count++;
+			}
 			break;
+		}
 
 		waiter->isr_recv = isr_recv;
 		dest = *(completed + waiter->action);

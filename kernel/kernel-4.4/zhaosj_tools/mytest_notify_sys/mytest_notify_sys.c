@@ -40,8 +40,25 @@ static ssize_t sof_notify_show(struct kobject *kobj, struct kobj_attribute *attr
    return sprintf(buf, "%s", wait_time_temp);
 }
 
+extern u32 notify_eof_count;
+extern s64 notify_eof[100];
+
+static ssize_t eof_notify_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int i = 0;
+    char wait_time_temp[3000];
+
+    wait_time_temp[0] = '\0';
+    
+    for (i = 0; i < notify_eof_count; ++i)
+        sprintf(wait_time_temp, "%s%lld:%lld\n", wait_time_temp, vi_sof_interval[0], notify_eof[i]);
+
+   return sprintf(buf, "%s", wait_time_temp);
+}
+
 extern s64 vi_sof_interval_over[100];
 extern u32 vi_sof_interval_over_count;
+extern s64 vi_sof_interval_over_temp[100];
 
 static ssize_t vi_sof_interval_over_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -51,7 +68,8 @@ static ssize_t vi_sof_interval_over_show(struct kobject *kobj, struct kobj_attri
     wait_time_temp[0] = '\0';
     
     for (i = 0; i < vi_sof_interval_over_count; ++i)
-        sprintf(wait_time_temp, "%s%lld:%lld\n", wait_time_temp, vi_sof_interval[0], vi_sof_interval_over[i]);
+        sprintf(wait_time_temp, "%s%lld :  %lld  :  %lld\n", wait_time_temp, vi_sof_interval[0], 
+            vi_sof_interval_over_temp[i],vi_sof_interval_over[i]);
 
    return sprintf(buf, "%s", wait_time_temp);
 }
@@ -143,8 +161,46 @@ static ssize_t eof_enable_time_show(struct kobject *kobj, struct kobj_attribute 
    return sprintf(buf, "%s", wait_time_temp);
 }
 
+extern s64 vi_sof_interval_temp[100];
+extern u32 vi_sof_interval_temp_count;
+
+static ssize_t vi_sof_interval_temp_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int i = 0;
+    char wait_time_temp[3000];
+
+    wait_time_temp[0] = '\0';
+    
+    for (i = 0; i < vi_sof_interval_temp_count; ++i)
+        sprintf(wait_time_temp, "%s%lld\n", wait_time_temp, vi_sof_interval_temp[i]);
+
+   return sprintf(buf, "%s", wait_time_temp);
+}
+
+
+extern u32 waiter_thresh_break_count;
+extern int waiter_thresh_break_id[100];
+extern u32 waiter_thresh_break_waiter_thresh[100];
+extern u32 waiter_thresh_break_sync[100];
+
+static ssize_t waiter_thresh_break_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int i = 0;
+    char wait_time_temp[3000];
+
+    wait_time_temp[0] = '\0';
+    
+    for (i = 0; i < waiter_thresh_break_count; ++i)
+        sprintf(wait_time_temp, "%s%d : %d : %d\n", wait_time_temp, 
+            waiter_thresh_break_id[i], waiter_thresh_break_waiter_thresh[i], waiter_thresh_break_sync[i]);
+
+   return sprintf(buf, "%s", wait_time_temp);
+}
+
+
 static struct kobj_attribute rw_thresh_attr = __ATTR(rw_thresh_value, 0664, rw_thresh_show, rw_thresh_store);
 static struct kobj_attribute sof_notify_attr = __ATTR(sof_notify_value, 0444, sof_notify_show, NULL);
+static struct kobj_attribute eof_notify_attr = __ATTR(eof_notify_value, 0444, eof_notify_show, NULL);
 static struct kobj_attribute vi_sof_interval_over_attr = __ATTR(vi_sof_interval_over_value, 0444, vi_sof_interval_over_show, NULL);
 static struct kobj_attribute vi_eof_interval_over_attr = __ATTR(vi_eof_interval_over_value, 0444, vi_eof_interval_over_show, NULL);
 static struct kobj_attribute nvhost_syncpt_wait_count_attr = __ATTR(nvhost_syncpt_wait_count, 0444, nvhost_syncpt_wait_count_show, NULL);
@@ -152,6 +208,10 @@ static struct kobj_attribute nvhost_syncpt_wait_count_attr = __ATTR(nvhost_syncp
 static struct kobj_attribute enable_time_thresh_attr = __ATTR(enable_time_thresh_value, 0664, enable_time_thresh_show, enable_time_thresh_store);
 static struct kobj_attribute sof_enable_time_attr = __ATTR(sof_enable_time_value, 0444, sof_enable_time_show, NULL);
 static struct kobj_attribute eof_enable_time_attr = __ATTR(eof_enable_time_value, 0444, eof_enable_time_show, NULL);
+
+static struct kobj_attribute vi_sof_interval_temp_attr = __ATTR(vi_sof_interval_temp_value, 0444, vi_sof_interval_temp_show, NULL);
+
+static struct kobj_attribute waiter_thresh_break_attr = __ATTR(waiter_thresh_break_value, 0444, waiter_thresh_break_show, NULL);
 
 /*
  * Create a group of attributes so that we can create and destroy them all
@@ -166,6 +226,9 @@ static struct attribute *attrs[] = {
    &enable_time_thresh_attr.attr,
    &sof_enable_time_attr.attr,
    &eof_enable_time_attr.attr,
+   &vi_sof_interval_temp_attr.attr,
+   &waiter_thresh_break_attr.attr,
+   &eof_notify_attr.attr,
 	NULL,	/* need to NULL terminate the list of attributes */
 };
 

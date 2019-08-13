@@ -42,6 +42,12 @@ EXPORT_SYMBOL(notify_sof);
 u32 notify_sof_count = 0;
 EXPORT_SYMBOL(notify_sof_count);
 
+s64 notify_eof[100];
+EXPORT_SYMBOL(notify_eof);
+
+u32 notify_eof_count = 0;
+EXPORT_SYMBOL(notify_eof_count);
+
 s64 notify_sof_time = 0;
 EXPORT_SYMBOL(notify_sof_time);
 
@@ -63,6 +69,8 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 	struct nvhost_intr *intr = &dev->intr;
 	unsigned long reg;
 	int i, id;
+	s64 notify_eof_time = 0;
+	static s64 eof_time_temp = 0;
 	
 	//printk("host1x_intr_t186.c : syncpt_thresh_cascade_isr @@@@@@@@@@@\n");
 
@@ -89,12 +97,20 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 			sp = intr->syncpt + sp_id;
 			nvhost_ktime_get_ts(&sp->isr_recv);
 
-			if (vi_notify_wait_time_count > 0 && sp_id == 22 && notify_sof_count < 100){
-				notify_sof_time = (ktime_get()).tv64;
-				delta = notify_sof_time - sof_time_temp;
-				if (abs(delta - vi_sof_interval[0]) > rw_thresh)
-					notify_sof[notify_sof_count++] = delta;
-				sof_time_temp = notify_sof_time;
+			if (vi_notify_wait_time_count > 0){
+				if (sp_id == 22 && notify_sof_count < 100){
+					notify_sof_time = (ktime_get()).tv64;
+					delta = notify_sof_time - sof_time_temp;
+					if (abs(delta - vi_sof_interval[0]) > rw_thresh)
+						notify_sof[notify_sof_count++] = delta;
+					sof_time_temp = notify_sof_time;
+				}else if (sp_id == 23 && notify_eof_count < 100){
+					notify_eof_time = (ktime_get()).tv64;
+					delta = notify_eof_time - eof_time_temp;
+					if (abs(delta - vi_sof_interval[0]) > rw_thresh)
+						notify_eof[notify_eof_count++] = delta;
+					eof_time_temp = notify_eof_time;
+				}	
 			}
 
 			syncpt_thresh_count++;
