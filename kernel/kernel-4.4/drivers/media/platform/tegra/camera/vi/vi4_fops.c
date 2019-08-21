@@ -80,6 +80,13 @@ static void vi4_channel_write(struct tegra_channel *chan,
 		chan->vi->iomem + VI4_CHANNEL_OFFSET * (index + 1) + addr);
 }
 
+static u32 vi4_channel_read(struct tegra_channel *chan,
+               unsigned int index, unsigned int addr)
+{
+       return readl(chan->vi->iomem + VI4_CHANNEL_OFFSET * (index + 1) + addr);
+}
+
+
 void vi4_init_video_formats(struct tegra_channel *chan)
 {
 	int i;
@@ -202,6 +209,23 @@ EXPORT_SYMBOL(vi_sof_interval_over_count);
 
 static bool first_sof_flag = true;
 
+
+u32 frame_count_count = 0;
+EXPORT_SYMBOL(frame_count_count);
+
+u32 frame_count_THRESH[100];
+EXPORT_SYMBOL(frame_count_THRESH);
+
+u32 frame_count_FS[100];
+EXPORT_SYMBOL(frame_count_FS);
+
+u32 frame_count_FE[100];
+EXPORT_SYMBOL(frame_count_FE);
+
+u32 frame_count_BAD[100];
+EXPORT_SYMBOL(frame_count_BAD);
+
+
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
 {
@@ -214,6 +238,9 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	static s64 sof_timestamp = 0;
 	static s64 sof_stamp_temp = 0;
 	s64 delta_stamp = 0;
+
+	u32 frame_count = 0;
+	u32 thresh_temp = 0;
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -238,6 +265,8 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		thresh[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
 					chan->syncpt[i][SOF_SYNCPT_IDX], 1);
 
+	thresh_temp = 0;
+
 	/*
 	 * Wait for PXL_SOF syncpt
 	 *
@@ -252,6 +281,13 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 				"PXL_SOF syncpt timeout! err = %d\n", err);
 		else {
 			struct vi_capture_status status;
+
+			frame_count = vi4_channel_read(chan, chan->vnc_id[0], FRAME_SOURCE);
+			if (frame_count_count < 100 && (frame_count & 0x0fff) != thresh[0]){
+				frame_count_FS[frame_count_count] = frame_count & 0x0000ffff;
+				frame_count_FE[frame_count_count] = thresh[0];
+				frame_count_count++;
+			}
 
 			sof_timestamp = (ktime_get()).tv64;
 
@@ -1263,6 +1299,8 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	eof_enable_count = 0;
 
 	waiter_thresh_break_count = 0;
+
+	frame_count_count = 0;
 	
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(

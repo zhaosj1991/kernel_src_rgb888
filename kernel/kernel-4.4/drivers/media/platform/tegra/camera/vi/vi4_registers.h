@@ -220,6 +220,8 @@
 
 #define FRAME_COUNT					0x06c
 
+#define FRAME_SOURCE                 0x068
+
 #define PIXFMT_ENABLE				0x080
 #define PDAF_EN						(0x1 << 2)
 #define COMPAND_EN					(0x1 << 1)
