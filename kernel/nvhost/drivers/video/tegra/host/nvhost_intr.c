@@ -223,6 +223,7 @@ static void action_wakeup(struct nvhost_waitlist *waiter)
 
 	//WARN_ON(atomic_xchg(&waiter->state, WLS_HANDLED) != WLS_REMOVED);
 	atomic_xchg(&waiter->state, WLS_HANDLED);
+	atomic_set(&waiter->flag, 0x1);
 	wake_up(wq);
 }
 

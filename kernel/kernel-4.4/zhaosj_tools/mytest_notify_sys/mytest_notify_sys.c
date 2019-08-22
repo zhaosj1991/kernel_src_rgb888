@@ -240,6 +240,24 @@ static ssize_t syncpt_val_show(struct kobject *kobj, struct kobj_attribute *attr
    return sprintf(buf, "%s", wait_time_temp);
 }
 
+extern u32 sof_val_continue_count;
+extern u32 sof_val_continue_old[100];
+extern u32 sof_val_continue_new[100];
+
+static ssize_t sof_val_continue_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    int i = 0;
+    char wait_time_temp[3000];
+
+    wait_time_temp[0] = '\0';
+    
+    for (i = 0; i < sof_val_continue_count; ++i)
+        sprintf(wait_time_temp, "%s old: %d  new: %d\n", wait_time_temp, 
+        sof_val_continue_old[i], sof_val_continue_new[i]);
+
+   return sprintf(buf, "%s", wait_time_temp);
+}
+
 static struct kobj_attribute rw_thresh_attr = __ATTR(rw_thresh_value, 0664, rw_thresh_show, rw_thresh_store);
 static struct kobj_attribute sof_notify_attr = __ATTR(sof_notify_value, 0444, sof_notify_show, NULL);
 static struct kobj_attribute eof_notify_attr = __ATTR(eof_notify_value, 0444, eof_notify_show, NULL);
@@ -256,6 +274,7 @@ static struct kobj_attribute vi_sof_interval_temp_attr = __ATTR(vi_sof_interval_
 static struct kobj_attribute waiter_thresh_break_attr = __ATTR(waiter_thresh_break_value, 0444, waiter_thresh_break_show, NULL);
 static struct kobj_attribute frame_count_attr = __ATTR(frame_count_value, 0444, frame_count_show, NULL);
 static struct kobj_attribute syncpt_val_attr = __ATTR(syncpt_val_value, 0444, syncpt_val_show, NULL);
+static struct kobj_attribute sof_val_continue_attr = __ATTR(sof_val_continue_value, 0444, sof_val_continue_show, NULL);
 
 /*
  * Create a group of attributes so that we can create and destroy them all
@@ -275,6 +294,7 @@ static struct attribute *attrs[] = {
    &eof_notify_attr.attr,
    &frame_count_attr.attr,
    &syncpt_val_attr.attr,
+   &sof_val_continue_attr.attr,
 	NULL,	/* need to NULL terminate the list of attributes */
 };
 

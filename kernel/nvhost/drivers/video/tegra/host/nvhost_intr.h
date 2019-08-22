@@ -89,6 +89,7 @@ struct nvhost_waitlist {
 	void *data;
 	int count;
 	wait_queue_head_t wq;
+	atomic_t flag;
 };
 
 struct nvhost_intr_syncpt {

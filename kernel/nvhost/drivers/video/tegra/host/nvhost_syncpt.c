@@ -451,6 +451,16 @@ done:
 	return err;
 }
 
+
+u32 sof_val_continue_count = 0;
+EXPORT_SYMBOL(sof_val_continue_count);
+
+u32 sof_val_continue_old[100];
+EXPORT_SYMBOL(sof_val_continue_old);
+
+u32 sof_val_continue_new[100];
+EXPORT_SYMBOL(sof_val_continue_new);
+
 /**
  * Main entrypoint for syncpoint value waits.
  */
@@ -467,6 +477,8 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 	bool (*syncpt_is_expired)(struct nvhost_syncpt *sp,
 			u32 id,
 			u32 thresh);
+	static u32 sof_val_old = 0;
+	u32 sof_val_new = 0;
 
 	sp = nvhost_get_syncpt_owner_struct(id, sp);
 	host = syncpt_to_dev(sp);
@@ -498,6 +510,17 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 
 	old_val = val;
 
+	if (id == 22 && sof_val_continue_count < 100){
+		/* try to read from register */
+		sof_val_new = syncpt_op().update_min(sp, id);
+		if (sof_val_new - sof_val_old > 1){
+			sof_val_continue_old[sof_val_continue_count] = sof_val_old;
+			sof_val_continue_new[sof_val_continue_count] = sof_val_new;
+			sof_val_continue_count++;
+		}
+		sof_val_old = sof_val_new;
+	}
+
 	/* Set up a threshold interrupt waiter */
 	if (!syncpt_poll) {
 
@@ -507,6 +530,8 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 			err = -ENOMEM;
 			goto done;
 		}
+
+		atomic_set(&waiter->flag, 0x0);
 
 		err = nvhost_intr_add_action(&(syncpt_to_dev(sp)->intr), id,
 				thresh,
@@ -564,7 +589,7 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 			}
 		else{
 			remain = wait_event_timeout(waiter->wq,
-				syncpt_is_expired(sp, id, thresh),
+				atomic_read(&waiter->flag),
 				check);
 			nvhost_syncpt_wait5++;
 		}
