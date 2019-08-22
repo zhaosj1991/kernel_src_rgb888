@@ -1147,6 +1147,7 @@ extern u32 sof_enable_count;
 extern u32 eof_enable_count;
 
 extern u32 waiter_thresh_break_count;
+extern u32 syncpt_val_count;
 
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
@@ -1301,6 +1302,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	waiter_thresh_break_count = 0;
 
 	frame_count_count = 0;
+	syncpt_val_count = 0;
 	
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(

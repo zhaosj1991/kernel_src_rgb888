@@ -227,6 +227,18 @@ u32 nvhost_syncpt_wait5 = 0;
 EXPORT_SYMBOL(nvhost_syncpt_wait5);
 
 
+u32 syncpt_val_count = 0;
+EXPORT_SYMBOL(syncpt_val_count);
+
+u32 syncpt_min_val[100];
+EXPORT_SYMBOL(syncpt_min_val);
+
+u32 syncpt_max_val[100];
+EXPORT_SYMBOL(syncpt_max_val);
+
+u32 syncpt_thresh_val[100];
+EXPORT_SYMBOL(syncpt_thresh_val);
+
 
 /**
  * Main entrypoint for syncpoint value waits.
@@ -244,6 +256,8 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	bool (*syncpt_is_expired)(struct nvhost_syncpt *sp,
 			u32 id,
 			u32 thresh);
+	u32 current_val = 0;
+	u32 future_val = 0;
 
 	sp = nvhost_get_syncpt_owner_struct(id, sp);
 	host = syncpt_to_dev(sp);
@@ -265,7 +279,8 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* first check cache */
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
-		nvhost_syncpt_wait1++;
+		if (id == 22 || id == 23)
+			nvhost_syncpt_wait1++;
 		if (value)
 			*value = nvhost_syncpt_read_min(sp, id);
 		if (ts)
@@ -280,8 +295,19 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* try to read from register */
 	val = syncpt_op().update_min(sp, id);
+	if (syncpt_val_count < 100 && (id == 22 || id == 23)){
+		current_val = (u32)atomic_read(&sp->min_val[id]);
+		future_val = (u32)atomic_read(&sp->max_val[id]);
+		if ((future_val - current_val > 1 || future_val != thresh)){
+			syncpt_min_val[syncpt_val_count] = current_val;
+			syncpt_max_val[syncpt_val_count] = future_val;
+			syncpt_thresh_val[syncpt_val_count] = thresh;
+			syncpt_val_count++;
+		}
+	}
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
-		nvhost_syncpt_wait2++;
+		if (id == 22 || id == 23)
+			nvhost_syncpt_wait2++;
 		if (value)
 			*value = val;
 		if (ts)
@@ -352,19 +378,21 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 			remain = msecs_to_jiffies((loops - i) *
 							SYNCPT_POLL_PERIOD);
-			
-			nvhost_syncpt_wait3++;
+			if (id == 22 || id == 23)
+				nvhost_syncpt_wait3++;
 		} else if (interruptible){
 			remain = wait_event_interruptible_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
-			nvhost_syncpt_wait4++;
+			if (id == 22 || id == 23)
+				nvhost_syncpt_wait4++;
 			}
 		else{
 			remain = wait_event_timeout(waiter->wq,
 				syncpt_is_expired(sp, id, thresh),
 				check);
-			nvhost_syncpt_wait5++;
+			if (id == 22 || id == 23)
+				nvhost_syncpt_wait5++;
 		}
 			
 		if (remain > 0 ||
@@ -1609,10 +1637,10 @@ int nvhost_syncpt_wait_timeout_ext(struct platform_device *dev, u32 id,
 	struct nvhost_master *master = nvhost_get_host(dev);
 	struct nvhost_syncpt *sp =
 		nvhost_get_syncpt_owner_struct(id, &master->syncpt);
-	/*if (id == 22 || id == 23)
+	if (id == 22 || id == 23)
 		return nvhost_syncpt_wait_timeout_tmp(sp, id, thresh, timeout, value, ts,
 			false);
-	else*/
+	else
 		return nvhost_syncpt_wait_timeout(sp, id, thresh, timeout, value, ts,
 			false);
 }
