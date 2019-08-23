@@ -80,11 +80,11 @@ static void vi4_channel_write(struct tegra_channel *chan,
 		chan->vi->iomem + VI4_CHANNEL_OFFSET * (index + 1) + addr);
 }
 
-static u32 vi4_channel_read(struct tegra_channel *chan,
+/*static u32 vi4_channel_read(struct tegra_channel *chan,
                unsigned int index, unsigned int addr)
 {
        return readl(chan->vi->iomem + VI4_CHANNEL_OFFSET * (index + 1) + addr);
-}
+}*/
 
 
 void vi4_init_video_formats(struct tegra_channel *chan)
@@ -282,10 +282,10 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 		else {
 			struct vi_capture_status status;
 
-			frame_count = vi4_channel_read(chan, chan->vnc_id[0], FRAME_SOURCE);
-			if (frame_count_count < 100 && (frame_count & 0x0fff) != thresh[0]){
-				frame_count_FS[frame_count_count] = frame_count & 0x0000ffff;
-				frame_count_FE[frame_count_count] = thresh[0];
+			frame_count = vi4_read(chan, CSIMUX_STAT_FRAME_0);
+			if (frame_count_count < 100){
+				frame_count_FS[frame_count_count] = frame_count >> 16;
+				frame_count_FE[frame_count_count] = frame_count & 0x0000ffff;
 				frame_count_count++;
 			}
 
@@ -1149,6 +1149,25 @@ extern u32 eof_enable_count;
 extern u32 waiter_thresh_break_count;
 extern u32 syncpt_val_count;
 
+u32 sof_val_continue_count = 0;
+EXPORT_SYMBOL(sof_val_continue_count);
+
+u32 sof_val_continue_old[100];
+EXPORT_SYMBOL(sof_val_continue_old);
+
+u32 sof_val_continue_new[100];
+EXPORT_SYMBOL(sof_val_continue_new);
+
+u32 sof_val_continue_min[100];
+EXPORT_SYMBOL(sof_val_continue_min);
+
+u32 sof_val_continue_max[100];
+EXPORT_SYMBOL(sof_val_continue_max);
+
+u32 sof_val_continue_thresh[100];
+EXPORT_SYMBOL(sof_val_continue_thresh);
+
+
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
@@ -1303,6 +1322,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	frame_count_count = 0;
 	syncpt_val_count = 0;
+	sof_val_continue_count = 0;
 	
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(

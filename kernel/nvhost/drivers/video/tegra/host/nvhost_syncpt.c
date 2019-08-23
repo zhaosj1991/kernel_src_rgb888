@@ -452,7 +452,7 @@ done:
 }
 
 
-u32 sof_val_continue_count = 0;
+/*u32 sof_val_continue_count = 0;
 EXPORT_SYMBOL(sof_val_continue_count);
 
 u32 sof_val_continue_old[100];
@@ -460,6 +460,23 @@ EXPORT_SYMBOL(sof_val_continue_old);
 
 u32 sof_val_continue_new[100];
 EXPORT_SYMBOL(sof_val_continue_new);
+
+u32 sof_val_continue_min[100];
+EXPORT_SYMBOL(sof_val_continue_min);
+
+u32 sof_val_continue_max[100];
+EXPORT_SYMBOL(sof_val_continue_max);
+
+u32 sof_val_continue_thresh[100];
+EXPORT_SYMBOL(sof_val_continue_thresh);*/
+
+
+extern u32 sof_val_continue_count;
+extern u32 sof_val_continue_old[100];
+extern u32 sof_val_continue_new[100];
+extern u32 sof_val_continue_min[100];
+extern u32 sof_val_continue_max[100];
+extern u32 sof_val_continue_thresh[100];
 
 /**
  * Main entrypoint for syncpoint value waits.
@@ -479,6 +496,8 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 			u32 thresh);
 	static u32 sof_val_old = 0;
 	u32 sof_val_new = 0;
+	u32 current_val = 0;
+	u32 future_val = 0;
 
 	sp = nvhost_get_syncpt_owner_struct(id, sp);
 	host = syncpt_to_dev(sp);
@@ -511,11 +530,16 @@ int nvhost_syncpt_wait_timeout_tmp(struct nvhost_syncpt *sp, u32 id,
 	old_val = val;
 
 	if (id == 22 && sof_val_continue_count < 100){
-		/* try to read from register */
-		sof_val_new = syncpt_op().update_min(sp, id);
-		if (sof_val_new - sof_val_old > 1){
-			sof_val_continue_old[sof_val_continue_count] = sof_val_old;
+		sof_val_new = syncpt_op().update_min(sp, id);	
+		current_val = (u32)atomic_read(&sp->min_val[id]);
+		future_val = (u32)atomic_read(&sp->max_val[id]);
+		if (sof_val_new - sof_val_old > 1 || sof_val_new >= thresh || 
+			current_val <= sof_val_new || future_val > thresh){	
+			/*sof_val_continue_old[sof_val_continue_count] = sof_val_old;
 			sof_val_continue_new[sof_val_continue_count] = sof_val_new;
+			sof_val_continue_min[sof_val_continue_count] = current_val;
+			sof_val_continue_max[sof_val_continue_count] = future_val;*/
+			sof_val_continue_thresh[sof_val_continue_count] = thresh;
 			sof_val_continue_count++;
 		}
 		sof_val_old = sof_val_new;

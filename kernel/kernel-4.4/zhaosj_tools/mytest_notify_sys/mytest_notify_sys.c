@@ -215,7 +215,7 @@ static ssize_t frame_count_show(struct kobject *kobj, struct kobj_attribute *att
    //       frame_count_FS[i], frame_count_FE[i], frame_count_BAD[i], frame_count_THRESH[i]);
 
    for (i = 0; i < frame_count_count; ++i)
-        sprintf(wait_time_temp, "%s  FS: %d  FE: %d\n", wait_time_temp, 
+        sprintf(wait_time_temp, "%s  INFRAME: %d  FRAMEID: %d\n", wait_time_temp, 
             frame_count_FS[i], frame_count_FE[i]);
 
    return sprintf(buf, "%s", wait_time_temp);
@@ -243,6 +243,9 @@ static ssize_t syncpt_val_show(struct kobject *kobj, struct kobj_attribute *attr
 extern u32 sof_val_continue_count;
 extern u32 sof_val_continue_old[100];
 extern u32 sof_val_continue_new[100];
+extern u32 sof_val_continue_min[100];
+extern u32 sof_val_continue_max[100];
+extern u32 sof_val_continue_thresh[100];
 
 static ssize_t sof_val_continue_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -252,8 +255,8 @@ static ssize_t sof_val_continue_show(struct kobject *kobj, struct kobj_attribute
     wait_time_temp[0] = '\0';
     
     for (i = 0; i < sof_val_continue_count; ++i)
-        sprintf(wait_time_temp, "%s old: %d  new: %d\n", wait_time_temp, 
-        sof_val_continue_old[i], sof_val_continue_new[i]);
+        sprintf(wait_time_temp, "%s old: %d  new: %d  min: %d  max: %d  thresh: %d\n", wait_time_temp, 
+        sof_val_continue_old[i], sof_val_continue_new[i], sof_val_continue_min[i], sof_val_continue_max[i], sof_val_continue_thresh[i]);
 
    return sprintf(buf, "%s", wait_time_temp);
 }

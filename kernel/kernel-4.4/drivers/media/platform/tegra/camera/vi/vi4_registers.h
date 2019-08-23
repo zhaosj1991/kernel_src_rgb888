@@ -44,6 +44,8 @@
 #define CFG_PWM_HIGH_PULSE			0x50
 #define PWM_HIGH_PULSE				(0xffffffff << 0)
 
+#define CSIMUX_STAT_FRAME_0          0x48c
+
 #define CSIMUX_CONFIG_STREAM_0		0x424
 #define CSIMUX_CONFIG_STREAM_1		0x428
 #define CSIMUX_CONFIG_STREAM_2		0x42C
