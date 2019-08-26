@@ -68,10 +68,10 @@ static void vi4_write(struct tegra_channel *chan, unsigned int addr, u32 val)
 	writel(val, chan->vi->iomem + addr);
 }
 
-static u32 vi4_read(struct tegra_channel *chan, unsigned int addr)
+/*static u32 vi4_read(struct tegra_channel *chan, unsigned int addr)
 {
 	return readl(chan->vi->iomem + addr);
-}
+}*/
 
 static void vi4_channel_write(struct tegra_channel *chan,
 		unsigned int index, unsigned int addr, u32 val)
@@ -154,6 +154,7 @@ static bool vi4_init(struct tegra_channel *chan)
 	return true;
 }
 
+#if 0
 static bool vi4_check_status(struct tegra_channel *chan)
 {
 	int status;
@@ -172,7 +173,9 @@ static bool vi4_check_status(struct tegra_channel *chan)
 
 	return true;
 }
+#endif
 
+#if 0
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
 {
@@ -229,6 +232,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	}
 	return true;
 }
+#endif
 
 static void tegra_channel_surface_setup(
 	struct tegra_channel *chan, struct tegra_channel_buffer *buf, int index)
@@ -515,15 +519,20 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	return 0;
 }
 
+static void tegra_channel_release_frame(struct tegra_channel *chan,
+					struct tegra_channel_buffer *buf);
+
+
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
-	struct timespec ts;
-	unsigned long flags;
+	//struct timespec ts;
+	//unsigned long flags;
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int restart_version = 0;
 	int err = false;
 	int i;
+	u32 temp;
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
@@ -545,6 +554,7 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
 
+	#if 0
 	/* wait for vi notifier events */
 	vi_notify_wait(chan, buf, &ts);
 	dev_dbg(&chan->video.dev,
@@ -568,6 +578,16 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 		release_buffer(chan, buf);
 		atomic_inc(&chan->restart_version);
 	}
+	#endif
+
+	for (i = 0; i < chan->valid_ports; i++){
+		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+					chan->syncpt[i][FE_SYNCPT_IDX], 1);
+		memcpy(&buf->thresh[0], &temp,
+                        TEGRA_CSI_BLOCKS * sizeof(u32));
+	}
+
+	tegra_channel_release_frame(chan, buf);
 
 	return 0;
 }
@@ -734,7 +754,7 @@ static int tegra_channel_kthread_capture_start(void *data)
 	return 0;
 }
 
-static int tegra_channel_kthread_release(void *data)
+/*static int tegra_channel_kthread_release(void *data)
 {
 	struct tegra_channel *chan = data;
 	struct tegra_channel_buffer *buf;
@@ -760,7 +780,7 @@ static int tegra_channel_kthread_release(void *data)
 	}
 
 	return 0;
-}
+}*/
 
 static void tegra_channel_stop_kthreads(struct tegra_channel *chan)
 {
@@ -1015,7 +1035,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	}
 
 	/* Start thread to release buffers */
-	chan->kthread_release = kthread_run(
+	/*chan->kthread_release = kthread_run(
 					tegra_channel_kthread_release,
 					chan, chan->video.name);
 	if (IS_ERR(chan->kthread_release)) {
@@ -1023,7 +1043,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 			"failed to run kthread for release\n");
 		ret = PTR_ERR(chan->kthread_release);
 		goto error_capture_setup;
-	}
+	}*/
 
 	return 0;
 
