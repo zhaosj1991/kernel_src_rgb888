@@ -41,7 +41,7 @@
 #include "t210/t210.h"
 #include "vi/vi.h"
 #include "vi/vi_irq.h"
-#include "camera/vi/vi2_fops.h"
+//#include "camera/vi/vi2_fops.h"
 #include "camera/csi/csi2_fops.h"
 
 #include "tegra_camera_dev_mfi.h"
@@ -59,7 +59,7 @@ EXPORT_SYMBOL(tegra_vi_get);
 
 static struct tegra_t210_vi_data t21_vi_data = {
 	.info = (struct nvhost_device_data *)&t21_vi_info,
-	.vi_fops = &vi2_fops,
+//	.vi_fops = &vi2_fops,
 	.csi_fops = &csi2_fops,
 };
 

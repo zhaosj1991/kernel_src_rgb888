@@ -228,11 +228,15 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 			u32 id,
 			u32 thresh);
 
+	//printk(KERN_ERR"nvhost_syncpt_wait_timeout  1\n");
+
 	sp = nvhost_get_syncpt_owner_struct(id, sp);
 	host = syncpt_to_dev(sp);
 
-	if (!id || !nvhost_syncpt_is_valid_hw_pt(sp, id))
+	if (!id || !nvhost_syncpt_is_valid_hw_pt(sp, id)) {
+		//printk(KERN_ERR"id || !nvhost_syncpt_is_valid_hw_pt(sp, id)  true\n");
 		return -EINVAL;
+	}
 
 
 	/*
@@ -248,6 +252,8 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* first check cache */
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
+
+		printk(KERN_ERR"check cache expire\n");
 		if (value)
 			*value = nvhost_syncpt_read_min(sp, id);
 		if (ts)
@@ -257,12 +263,15 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* keep host alive */
 	err = nvhost_module_busy(syncpt_to_dev(sp)->dev);
-	if (err)
+	if (err) { 
+		printk(KERN_ERR"nvhost_module_busy err\n");
 		return err;
-
+	}
 	/* try to read from register */
 	val = syncpt_op().update_min(sp, id);
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
+
+		printk(KERN_ERR"read register expire\n");
 		if (value)
 			*value = val;
 		if (ts)
@@ -279,7 +288,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 
 	/* Set up a threshold interrupt waiter */
 	if (!syncpt_poll) {
-
+		//printk(KERN_ERR"interrupt waiter expire\n");
 		/* schedule a wakeup when the syncpoint value is reached */
 		waiter = nvhost_intr_alloc_waiter();
 		if (!waiter) {

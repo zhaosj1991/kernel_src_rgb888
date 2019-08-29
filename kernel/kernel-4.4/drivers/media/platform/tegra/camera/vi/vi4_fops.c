@@ -33,6 +33,14 @@
 #define FE_SYNCPT_IDX	1
 #define PG_BITRATE	32
 
+struct timeval tv_start, tv_end;
+bool b_start_time_cal = false;
+long last_timecost = 0;
+u32 cost_100_cnt = 0;
+u32 cost_100_surface_cnt = 0;
+EXPORT_SYMBOL(cost_100_cnt);
+EXPORT_SYMBOL(cost_100_surface_cnt);
+	
 extern void tegra_channel_queued_buf_done(struct tegra_channel *chan,
 					  enum vb2_buffer_state state);
 extern int tegra_channel_set_stream(struct tegra_channel *chan, bool on);
@@ -67,12 +75,12 @@ static void vi4_write(struct tegra_channel *chan, unsigned int addr, u32 val)
 {
 	writel(val, chan->vi->iomem + addr);
 }
-
+//#if 0
 static u32 vi4_read(struct tegra_channel *chan, unsigned int addr)
 {
 	return readl(chan->vi->iomem + addr);
 }
-
+//#endif
 static void vi4_channel_write(struct tegra_channel *chan,
 		unsigned int index, unsigned int addr, u32 val)
 {
@@ -173,11 +181,16 @@ static bool vi4_check_status(struct tegra_channel *chan)
 	return true;
 }
 
+#if 0
 static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buffer *buf,
 	struct timespec *ts)
 {
+
+
 	int i, err;
 	u32 thresh[TEGRA_CSI_BLOCKS], temp;
+
+printk(KERN_ERR"you will not see this message\n");
 
 	/*
 	 * Increment syncpt for ATOMP_FE
@@ -227,9 +240,10 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 				*ts = ns_to_timespec((s64)status.sof_ts);
 		}
 	}
+
 	return true;
 }
-
+#endif
 static void tegra_channel_surface_setup(
 	struct tegra_channel *chan, struct tegra_channel_buffer *buf, int index)
 {
@@ -490,7 +504,9 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	vi4_channel_write(chan, vnc_id, ATOMP_DPCM_CHUNK, 0x0);
 	vi4_channel_write(chan, vnc_id, ISPBUFA, 0x0);
 	vi4_channel_write(chan, vnc_id, LINE_TIMER, 0x1000000);
+	/* zsj */
 	vi4_channel_write(chan, vnc_id, NOTIFY_MASK_XCPT, MASK_STALE_FRAME);
+	
 	if (chan->embedded_data_height > 0) {
 		vi4_channel_write(chan, vnc_id, EMBED_X,
 			chan->embedded_data_width * BPP_MEM);
@@ -518,26 +534,62 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
-	struct timespec ts;
-	unsigned long flags;
+//	struct timespec ts;
 	bool is_streaming = atomic_read(&chan->is_streaming);
-	int restart_version = 0;
+//	int restart_version = 0;
 	int err = false;
 	int i;
+	u32 temp;
+	static long surface_setup_last = 0;
+	long timecost;
+	struct timeval tv_start_tmp, tv_end_tmp;
+
+	do_gettimeofday(&tv_start_tmp);
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf, i);
 
-	restart_version = atomic_read(&chan->restart_version);
-	if (!is_streaming ||
-		restart_version != chan->capture_version) {
 
-		chan->capture_version = restart_version;
+	if (surface_setup_last != 0)
+	{
+		do_gettimeofday(&tv_end_tmp);
+		timecost = tv_end_tmp.tv_sec * 1000000 + tv_end_tmp.tv_usec 
+			- tv_start_tmp.tv_sec * 1000000 - tv_start_tmp.tv_usec;
+		if (surface_setup_last != 0) 
+		{
+			if (abs(timecost - surface_setup_last) > 100)
+			{
+				//printk(KERN_ERR"timecost from eof to load not stable, timecost = %ld, last = %ld\n", timecost, last_timecost);
+				cost_100_surface_cnt++;
+			}
+		}
+		surface_setup_last = timecost;
+	}
+
+//	restart_version = atomic_read(&chan->restart_version);
+	if (!is_streaming) {
+		
+//		chan->capture_version = restart_version;
 		err = tegra_channel_set_stream(chan, true);
 		if (err < 0)
 			return err;
 	}
-
+#if 0
+	if (b_start_time_cal)
+	{
+		do_gettimeofday(&tv_end);
+		timecost = tv_end.tv_sec * 1000000 + tv_end.tv_usec 
+			- tv_start.tv_sec * 1000000 - tv_start.tv_usec;
+		if (last_timecost != 0) 
+		{
+			if (abs(timecost - last_timecost) > 100)
+			{
+				printk(KERN_ERR"timecost from eof to load not stable, timecost = %ld, last = %ld\n", timecost, last_timecost);
+			}
+		}
+		last_timecost = timecost;
+	}
+#endif
 	for (i = 0; i < chan->valid_ports; i++) {
 		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
 		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
@@ -546,28 +598,19 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf, &ts);
+	// no wait sof
+	// vi_notify_wait(chan, buf, &ts);
+	for (i = 0; i < chan->valid_ports; i++){
+		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+					chan->syncpt[i][FE_SYNCPT_IDX], 1);
+		memcpy(&buf->thresh[0], &temp,
+                        TEGRA_CSI_BLOCKS * sizeof(u32));
+	}
+	
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf);
 
 	vi4_check_status(chan);
-
-	spin_lock_irqsave(&chan->capture_state_lock, flags);
-	if (chan->capture_state != CAPTURE_ERROR)
-		chan->capture_state = CAPTURE_GOOD;
-	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
-
-	if (chan->capture_state == CAPTURE_GOOD) {
-		/*
-		 * Set the buffer version to match
-		 * current capture version
-		 */
-		buf->version = chan->capture_version;
-		enqueue_inflight(chan, buf);
-	} else {
-		release_buffer(chan, buf);
-		atomic_inc(&chan->restart_version);
-	}
 
 	return 0;
 }
@@ -578,7 +621,8 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	struct timespec ts = {0, 0};
 	int index;
 	int err = 0;
-	int restart_version = 0;
+	//int restart_version = 0;
+	long timecost;
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -588,17 +632,25 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	 * it has already happened so don't bother waiting for the frame
 	 * to complete.
 	 */
+#if 0
 	restart_version = atomic_read(&chan->restart_version);
 	if (buf->version != restart_version) {
+		printk(KERN_ERR"restart version not match. buf->version = %d restart_version = %d\n", buf->version, restart_version);
 		buf->state = VB2_BUF_STATE_ERROR;
 		release_buffer(chan, buf);
 		return;
 	}
+#endif
 
 	for (index = 0; index < chan->valid_ports; index++) {
+		//printk("tegra_channel_release_frame for loop\n");
 		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
 			chan->syncpt[index][FE_SYNCPT_IDX], buf->thresh[index],
 			chan->timeout, NULL, &ts);
+#if 0
+		do_gettimeofday(&tv_start);
+		b_start_time_cal = true;
+#endif
 		if (err)
 			dev_err(&chan->video.dev,
 				"MW_ACK_DONE syncpoint time out!%d\n", index);
@@ -608,6 +660,7 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 
 	if (err) {
 		buf->state = VB2_BUF_STATE_ERROR;
+		printk(KERN_ERR"will restart in capture frame\n");
 
 		/* NOTE:
 		 * Disabling the following, it will happen in the
@@ -620,7 +673,27 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 		 */
 		atomic_inc(&chan->restart_version);
 	}
+
+	b_start_time_cal = true;
+	do_gettimeofday(&tv_start);
+	
 	release_buffer(chan, buf);
+
+	if (b_start_time_cal)
+	{
+		do_gettimeofday(&tv_end);
+		timecost = tv_end.tv_sec * 1000000 + tv_end.tv_usec 
+			- tv_start.tv_sec * 1000000 - tv_start.tv_usec;
+		if (last_timecost != 0) 
+		{
+			if (abs(timecost - last_timecost) > 100)
+			{
+				//printk(KERN_ERR"timecost from eof to load not stable, timecost = %ld, last = %ld\n", timecost, last_timecost);
+				cost_100_cnt++;
+			}
+		}
+		last_timecost = timecost;
+	}
 }
 
 static int tegra_channel_stop_increments(struct tegra_channel *chan)
@@ -710,30 +783,37 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 	while (1) {
 
-		try_to_freeze();
+		//try_to_freeze();
 
-		wait_event_interruptible(chan->start_wait,
-					 !list_empty(&chan->capture) ||
-					 kthread_should_stop());
+//		wait_event_interruptible(chan->start_wait,
+//					 !list_empty(&chan->capture) ||
+//					 1 ||
+//					 kthread_should_stop());
 
-		if (kthread_should_stop())
-			break;
+		//if(!list_empty(&chan->capture))
+		//	continue;
+
+//		if (kthread_should_stop())
+//			break;
 
 		/* source is not streaming if error is non-zero */
 		/* wait till kthread stop and dont DeQ buffers */
-		if (err)
-			continue;
+		//if (err)
+		//	continue;
 
 		buf = dequeue_buffer(chan);
-		if (!buf)
+		if (!buf) {
+			printk(KERN_ERR"buffer insufficient\n");
 			continue;
+		}
 
 		err = tegra_channel_capture_frame(chan, buf);
+		
+		tegra_channel_release_frame(chan, buf);
 	}
-
 	return 0;
 }
-
+#if 0
 static int tegra_channel_kthread_release(void *data)
 {
 	struct tegra_channel *chan = data;
@@ -761,7 +841,7 @@ static int tegra_channel_kthread_release(void *data)
 
 	return 0;
 }
-
+#endif
 static void tegra_channel_stop_kthreads(struct tegra_channel *chan)
 {
 	mutex_lock(&chan->stop_kthread_lock);
@@ -933,8 +1013,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 				chan->embedded_data_width =
 					sensor_mode->image_properties.width;
 				chan->embedded_data_height =
-					sensor_mode->image_properties.\
-					embedded_metadata_height;
+					sensor_mode->image_properties.embedded_metadata_height;
 				/* rounding up to page size */
 				emb_buf_size =
 					round_up(chan->embedded_data_width *
@@ -1003,6 +1082,12 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	INIT_WORK(&chan->error_work, tegra_channel_error_worker);
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
 
+
+	cost_100_cnt = 0;
+	cost_100_surface_cnt = 0;
+	b_start_time_cal = false;
+	last_timecost = 0;
+
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
 					tegra_channel_kthread_capture_start,
@@ -1013,7 +1098,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 		ret = PTR_ERR(chan->kthread_capture_start);
 		goto error_capture_setup;
 	}
-
+#if 0 
 	/* Start thread to release buffers */
 	chan->kthread_release = kthread_run(
 					tegra_channel_kthread_release,
@@ -1024,7 +1109,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 		ret = PTR_ERR(chan->kthread_release);
 		goto error_capture_setup;
 	}
-
+#endif
 	return 0;
 
 error_capture_setup:
@@ -1047,6 +1132,7 @@ int vi4_channel_stop_streaming(struct vb2_queue *vq)
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int i;
+
 
 	for (i = 0; i < chan->valid_ports; i++) {
 		if (chan->vnc_id[i] == -1)
