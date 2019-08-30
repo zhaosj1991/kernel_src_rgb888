@@ -18,7 +18,7 @@
 #include <linux/dma-buf.h>
 
 //#define VB2_MAX_FRAME	(32)
-#define VB2_MAX_FRAME	(302)
+#define VB2_MAX_FRAME	(30000)
 #define VB2_MAX_PLANES	(8)
 
 enum vb2_memory {

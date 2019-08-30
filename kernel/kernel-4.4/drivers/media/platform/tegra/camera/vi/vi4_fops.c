@@ -197,7 +197,7 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	struct timespec *ts)
 {
 	int i, err;
-	u32 thresh[TEGRA_CSI_BLOCKS], temp;
+	u32 thresh[TEGRA_CSI_BLOCKS]/*, temp*/;
 	static u64 temp_sof = 0;
 	static u64 count = 0;
 
@@ -212,12 +212,12 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	 * This is needed in order to keep the syncpt max up to date,
 	 * even if we are not waiting for ATOMP_FE here
 	 */
-	for (i = 0; i < chan->valid_ports; i++){
+	/*for (i = 0; i < chan->valid_ports; i++){
 		temp = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
 					chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		memcpy(&buf->thresh[0], &temp,
                         TEGRA_CSI_BLOCKS * sizeof(u32));
-	}
+	}*/
 
 	/*
 	 * Increment syncpt for PXL_SOF
@@ -578,12 +578,14 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf1, struct tegra_channel_buffer *buf2)
 {
-	struct timespec ts;
+	//struct timespec ts;
 	unsigned long flags;
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int restart_version = 0;
 	int err = false;
 	int i;
+	static bool first_capture = true;
+	static u32 thresh[TEGRA_CSI_BLOCKS];
 
 	for (i = 0; i < chan->valid_ports; i++)
 		tegra_channel_surface_setup(chan, buf1, i);
@@ -599,7 +601,36 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 	}
 
 	/* wait for vi notifier events */
-	vi_notify_wait(chan, buf2, &ts);
+	//vi_notify_wait(chan, buf2, &ts);
+
+	/*
+	 * Increment syncpt for PXL_SOF
+	 *
+	 * Increment and retrieve PXL_SOF syncpt max value.
+	 * This value will be used to wait for next syncpt
+	 */
+	 if (first_capture){
+	 	first_capture = false;
+		for (i = 0; i < chan->valid_ports; i++)
+			thresh[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+					chan->syncpt[i][FE_SYNCPT_IDX], 1);
+	 }
+	
+
+	/*
+	 * Wait for PXL_SOF syncpt
+	 *
+	 * Use the syncpt max value we just set as threshold
+	 */
+	for (i = 0; i < chan->valid_ports; i++) {
+		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
+				chan->syncpt[i][FE_SYNCPT_IDX], thresh[i],
+				chan->timeout, NULL, NULL);
+		if (unlikely(err))
+			dev_err(chan->vi->dev,
+				"PXL_SOF syncpt timeout! err = %d\n", err);
+	}
+	
 	dev_dbg(&chan->video.dev,
 		"%s: vi4 got SOF syncpt buf[%p]\n", __func__, buf2);
 
@@ -610,7 +641,9 @@ static int tegra_channel_capture_frame(struct tegra_channel *chan,
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
 	}
 
-	vi4_check_status(chan);
+	for (i = 0; i < chan->valid_ports; i++)
+		thresh[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+				chan->syncpt[i][FE_SYNCPT_IDX], 1);
 
 	spin_lock_irqsave(&chan->capture_state_lock, flags);
 	if (chan->capture_state != CAPTURE_ERROR)
@@ -684,18 +717,6 @@ static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
 		chan->capture_state = CAPTURE_GOOD;
 	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
 
-	if (chan->capture_state == CAPTURE_GOOD) {
-		/*
-		 * Set the buffer version to match
-		 * current capture version
-		 */
-		buf1->version = chan->capture_version;
-		enqueue_inflight(chan, buf1);
-	} else {
-		release_buffer(chan, buf1);
-		atomic_inc(&chan->restart_version);
-	}
-	
 	return 0;
 }
 
@@ -703,51 +724,7 @@ static int tegra_channel_capture_first_frame(struct tegra_channel *chan,
 static void tegra_channel_release_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
-	struct timespec ts = {0, 0};
-	int index;
-	int err = 0;
-	int restart_version = 0;
-
 	buf->state = VB2_BUF_STATE_DONE;
-
-	/*
-	 * If the frame capture was started on a different reset version
-	 * than our current version than either a reset is imminent or
-	 * it has already happened so don't bother waiting for the frame
-	 * to complete.
-	 */
-	restart_version = atomic_read(&chan->restart_version);
-	if (buf->version != restart_version) {
-		buf->state = VB2_BUF_STATE_ERROR;
-		release_buffer(chan, buf);
-		return;
-	}
-
-	for (index = 0; index < chan->valid_ports; index++) {
-		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
-			chan->syncpt[index][FE_SYNCPT_IDX], buf->thresh[index],
-			chan->timeout, NULL, &ts);
-		if (err)
-			dev_err(&chan->video.dev,
-				"MW_ACK_DONE syncpoint time out!%d\n", index);
-	}
-	dev_dbg(&chan->video.dev,
-		"%s: vi4 got EOF syncpt buf[%p]\n", __func__, buf);
-
-	if (err) {
-		buf->state = VB2_BUF_STATE_ERROR;
-
-		/* NOTE:
-		 * Disabling the following, it will happen in the
-		 * capture thread on the next frame start due to
-		 * the reset request we make by incrementing the
-		 * reset counter.
-
-		tegra_channel_ec_recover(chan);
-		chan->capture_state = CAPTURE_TIMEOUT;
-		 */
-		atomic_inc(&chan->restart_version);
-	}
 	release_buffer(chan, buf);
 }
 
