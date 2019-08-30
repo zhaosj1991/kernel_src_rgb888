@@ -363,7 +363,6 @@ void tegra_channel_ec_close(struct tegra_mc_vi *vi)
 
 struct tegra_channel_buffer* dequeue_inflight(struct tegra_channel* chan)
 {
-
 	struct tegra_channel_buffer *buf = NULL;
 
 	spin_lock(&chan->release_lock);

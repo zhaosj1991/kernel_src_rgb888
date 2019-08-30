@@ -253,7 +253,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	/* first check cache */
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
 
-		printk(KERN_ERR"check cache expire\n");
+		//printk(KERN_ERR"check cache expire\n");
 		if (value)
 			*value = nvhost_syncpt_read_min(sp, id);
 		if (ts)
@@ -271,7 +271,7 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 	val = syncpt_op().update_min(sp, id);
 	if (nvhost_syncpt_is_expired(sp, id, thresh)) {
 
-		printk(KERN_ERR"read register expire\n");
+		//printk(KERN_ERR"read register expire\n");
 		if (value)
 			*value = val;
 		if (ts)
