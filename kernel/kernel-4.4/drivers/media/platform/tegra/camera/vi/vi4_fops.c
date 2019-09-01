@@ -713,6 +713,9 @@ static int capture_start(struct tegra_channel *chan)
 	struct tegra_channel_buffer *buf;
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int i = 0;
+	int err = false;
+	u32 thresh[TEGRA_CSI_BLOCKS];
+	int index = 0;
 
 	buf = dequeue_buffer(chan);
 	if (!buf){
@@ -724,16 +727,16 @@ static int capture_start(struct tegra_channel *chan)
 	tegra_channel_surface_setup(chan, buf, 0);
 
 	if (!is_streaming) {
-		int err = false;
-		u32 thresh[TEGRA_CSI_BLOCKS];
-		struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
+		/*struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
 		struct nvhost_syncpt *syncpt =
-			nvhost_get_syncpt_owner_struct(chan->syncpt[i][FE_SYNCPT_IDX], &master->syncpt);
-		struct nvhost_intr *intr = &(syncpt_to_dev(syncpt)->intr);
+			nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], &master->syncpt);
+		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[i][FE_SYNCPT_IDX], syncpt);
+		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);*/
 		
 		err = tegra_channel_set_stream(chan, true);
 		if (err < 0)
 			return err;
+
 		/*
 		 * Increment syncpt for ATOMP_FE
 		 *
@@ -745,6 +748,8 @@ static int capture_start(struct tegra_channel *chan)
 						chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		}
 
+#if 0
+
 		/* keep host alive */
 		err = nvhost_module_busy(syncpt_to_dev(syncpt)->dev);
 		if (err)
@@ -753,6 +758,7 @@ static int capture_start(struct tegra_channel *chan)
 		/* set_syncpt_threshold - enable interrupt */
 		intr_op().set_syncpt_threshold(intr, chan->syncpt[i][FE_SYNCPT_IDX], thresh[0]);
 		intr_op().enable_syncpt_intr(intr, chan->syncpt[i][FE_SYNCPT_IDX]);
+	#endif
 	}
 
 	for (i = 0; i < chan->valid_ports; i++) {
@@ -760,6 +766,15 @@ static int capture_start(struct tegra_channel *chan)
 		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
 		vi4_channel_write(chan, chan->vnc_id[i],
 			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
+
+	for (index = 0; index < chan->valid_ports; index++) {
+		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
+			chan->syncpt[index][FE_SYNCPT_IDX], thresh[index],
+			chan->timeout, NULL, NULL);
+		if (err)
+			dev_err(&chan->video.dev,
+				"MW_ACK_DONE syncpoint time out!%d\n", index);
 	}
 
 	return 0;
@@ -951,9 +966,13 @@ static void tegra_do_tasklet(unsigned long data)
 	struct tegra_channel *chan = (struct tegra_channel *)data;
 	struct tegra_channel_buffer *buf;
 
+	//printk("^^^^^^^^^^^^^ tegra_do_tasklet 0\n");
+
 	buf = dequeue_inflight(chan);
 	if (!buf)
 		return;
+
+	//printk("^^^^^^^^^^^^^ tegra_do_tasklet 1\n");
 
 	buf->state = VB2_BUF_STATE_DONE;
 
@@ -1135,6 +1154,13 @@ int vi4_channel_stop_streaming(struct vb2_queue *vq)
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int i;
+	/*struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
+	struct nvhost_syncpt *syncpt =
+	nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], &master->syncpt);
+	struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], syncpt);
+
+	nvhost_intr_put_ref(&(syncpt_to_dev(sp)->intr), chan->syncpt[0][FE_SYNCPT_IDX], NULL);
+	nvhost_module_idle(syncpt_to_dev(sp)->dev);*/
 
 	for (i = 0; i < chan->valid_ports; i++) {
 		if (chan->vnc_id[i] == -1)
@@ -1158,6 +1184,8 @@ int vi4_channel_stop_streaming(struct vb2_queue *vq)
 
 	tegra_channel_set_stream(chan, false);
 	media_entity_pipeline_stop(&chan->video.entity);
+
+	
 
 	if (!chan->bypass)
 		tegra_channel_update_clknbw(chan, 0);
