@@ -113,8 +113,6 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 	struct nvhost_intr *intr = &dev->intr;
 	unsigned long reg;
 	int i, id;
-	struct tegra_mc_vi *mc_vi = dev->mc_vi;
-	struct tegra_channel *chan = list_first_entry(&(mc_vi->vi_chans), struct tegra_channel, list);
 
 	for (i = 0; i < DIV_ROUND_UP(nvhost_syncpt_nb_hw_pts(&dev->syncpt), 32);
 			i++) {
@@ -148,6 +146,9 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 				nvhost_syncpt_patch_check(&dev->syncpt);
 				intr_syncpt_intr_ack(sp, false);
 			} if (sp_id == 23){
+				struct tegra_mc_vi *mc_vi = dev->mc_vi;
+				struct tegra_channel *chan = list_first_entry(&(mc_vi->vi_chans), struct tegra_channel, list);
+				
 				if (chan == NULL){
 					printk("### host1x_intr_t186.c : syncpt_thresh_cascade_isr chan is NULL!\n");
 				}else{
