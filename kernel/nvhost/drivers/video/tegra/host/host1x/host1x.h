@@ -125,6 +125,7 @@ struct nvhost_master {
 	struct list_head list;
 
 	struct rb_root syncpt_backing_head;
+	struct tegra_mc_vi *mc_vi;
 };
 
 #ifdef CONFIG_DEBUG_FS

@@ -24,9 +24,16 @@
 #include "nvhost_intr.h"
 #include "nvhost_ktime.h"
 #include "dev.h"
+#include "../../../../../../kernel-4.4/drivers/media/platform/tegra/camera/vi/vi4_registers.h"
+
 
 /* Spacing between sync registers */
 #define REGISTER_STRIDE 4
+
+extern struct tegra_channel_buffer *dequeue_buffer(struct tegra_channel *chan);
+extern void tegra_channel_surface_setup(struct tegra_channel *chan, struct tegra_channel_buffer *buf, int index);
+extern void vi4_channel_write(struct tegra_channel *chan,
+		unsigned int index, unsigned int addr, u32 val);
 
 static void intr_syncpt_intr_ack(struct nvhost_intr_syncpt *syncpt,
 				     bool disable_intr);
@@ -34,12 +41,80 @@ static void intr_enable_syncpt_intr(struct nvhost_intr *intr, u32 id);
 static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 					  u32 id, u32 thresh);
 
+
+static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr,
+			     struct nvhost_intr_syncpt *syncpt,
+			     u32 threshold)
+{
+	bool is_streaming = atomic_read(&chan->is_streaming);
+	struct tegra_channel_buffer *buf;
+	
+	/* Put buffer into the release queue */
+	spin_lock(&chan->release_lock);
+	list_add_tail(&chan->cur_buf->queue, &chan->release);
+	spin_unlock(&chan->release_lock);
+	
+	buf = dequeue_buffer(chan);
+	if (!buf) {
+		printk("### vi_chan_capture chan->capture is NULL !\n");
+		return;
+	}
+
+	chan->cur_buf = buf;
+
+	if (!is_streaming){
+		printk("### vi_chan_capture is_streaming is false !\n");
+		return;
+	}
+
+	tegra_channel_surface_setup(chan, buf, 0);
+
+	vi4_channel_write(chan, chan->vnc_id[0], CHANNEL_COMMAND, LOAD);
+	vi4_channel_write(chan, chan->vnc_id[0],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	
+	/* take lock on syncpt list */
+	spin_lock(&syncpt->lock);
+
+	// increase thresh & enable interrupt
+	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
+	intr_enable_syncpt_intr(intr, syncpt->id);
+
+	/* release syncpt lock */
+	spin_unlock(&syncpt->lock);
+		
+	// schedule tasklet to release buffer
+	tasklet_schedule(&chan->tasklet_vi4);
+}
+static void vi_syncpt_thresh_fn(void *dev_id, struct tegra_channel *chan)
+{
+	struct nvhost_intr_syncpt *syncpt = dev_id;
+	unsigned int id = syncpt->id;
+	struct nvhost_intr *intr = intr_syncpt_to_intr(syncpt);
+	struct nvhost_master *dev = intr_to_dev(intr);
+	int err;
+
+	/* make sure host1x is powered */
+	err = nvhost_module_busy(dev->dev);
+	if (err) {
+		WARN(1, "failed to powerON host1x.");
+		return;
+	}
+
+	vi_chan_capture(chan, intr, syncpt,
+				nvhost_syncpt_update_min(&dev->syncpt, id));
+
+	nvhost_module_idle(dev->dev);
+}
+
 static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 {
 	struct nvhost_master *dev = dev_id;
 	struct nvhost_intr *intr = &dev->intr;
 	unsigned long reg;
 	int i, id;
+	struct tegra_mc_vi *mc_vi = dev->mc_vi;
+	struct tegra_channel *chan = list_first_entry(&(mc_vi->vi_chans), struct tegra_channel, list);
 
 	for (i = 0; i < DIV_ROUND_UP(nvhost_syncpt_nb_hw_pts(&dev->syncpt), 32);
 			i++) {
@@ -72,7 +147,15 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 					 __func__, graphics_host_sp);
 				nvhost_syncpt_patch_check(&dev->syncpt);
 				intr_syncpt_intr_ack(sp, false);
-			} else {
+			} if (sp_id == 23){
+				if (chan == NULL){
+					printk("### host1x_intr_t186.c : syncpt_thresh_cascade_isr chan is NULL!\n");
+				}else{
+					// clear & disable interrupt
+					intr_syncpt_intr_ack(sp, true);
+					vi_syncpt_thresh_fn(sp, chan);
+				}
+			}else {
 				intr_syncpt_intr_ack(sp, true);
 				nvhost_syncpt_thresh_fn(sp);
 			}

@@ -288,6 +288,9 @@ int tegra_vi_media_controller_init(struct tegra_mc_vi *mc_vi,
 	int err = 0;
 	struct nvhost_device_data *pdata = (struct nvhost_device_data *)
 		platform_get_drvdata(pdev);
+	struct nvhost_master *nvhost_master = nvhost_get_host(pdev);
+
+	nvhost_master->mc_vi = mc_vi;
 
 	if (!pdata)
 		return -EINVAL;

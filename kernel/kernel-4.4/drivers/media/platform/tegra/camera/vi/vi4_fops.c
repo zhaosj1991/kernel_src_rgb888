@@ -22,7 +22,11 @@
 #include "vi4_registers.h"
 #include "vi4_formats.h"
 #include "vi/vi_notify.h"
-#include <media/sensor_common.h>
+#include <media/sensor_common.h>	
+
+#include "host1x/host1x.h"
+#include "chip_support.h"
+
 
 #define DEFAULT_FRAMERATE	30
 #define BPP_MEM		2
@@ -68,12 +72,12 @@ static void vi4_write(struct tegra_channel *chan, unsigned int addr, u32 val)
 	writel(val, chan->vi->iomem + addr);
 }
 
-static u32 vi4_read(struct tegra_channel *chan, unsigned int addr)
+/*static u32 vi4_read(struct tegra_channel *chan, unsigned int addr)
 {
 	return readl(chan->vi->iomem + addr);
-}
+}*/
 
-static void vi4_channel_write(struct tegra_channel *chan,
+void vi4_channel_write(struct tegra_channel *chan,
 		unsigned int index, unsigned int addr, u32 val)
 {
 	writel(val,
@@ -154,6 +158,7 @@ static bool vi4_init(struct tegra_channel *chan)
 	return true;
 }
 
+#if 0
 static bool vi4_check_status(struct tegra_channel *chan)
 {
 	int status;
@@ -229,8 +234,9 @@ static bool vi_notify_wait(struct tegra_channel *chan, struct tegra_channel_buff
 	}
 	return true;
 }
+#endif
 
-static void tegra_channel_surface_setup(
+void tegra_channel_surface_setup(
 	struct tegra_channel *chan, struct tegra_channel_buffer *buf, int index)
 {
 	int vnc_id = chan->vnc_id[index];
@@ -514,6 +520,7 @@ static int tegra_channel_capture_setup(struct tegra_channel *chan,
 	return 0;
 }
 
+#if 0
 static int tegra_channel_capture_frame(struct tegra_channel *chan,
 					struct tegra_channel_buffer *buf)
 {
@@ -621,6 +628,7 @@ static void tegra_channel_release_frame(struct tegra_channel *chan,
 	}
 	release_buffer(chan, buf);
 }
+#endif
 
 static int tegra_channel_stop_increments(struct tegra_channel *chan)
 {
@@ -699,6 +707,66 @@ static void tegra_channel_capture_done(struct tegra_channel *chan)
 	release_buffer(chan, buf);
 }
 
+
+static int capture_start(struct tegra_channel *chan)
+{
+	struct tegra_channel_buffer *buf;
+	bool is_streaming = atomic_read(&chan->is_streaming);
+	int i = 0;
+
+	buf = dequeue_buffer(chan);
+	if (!buf){
+		printk("@@@ vi4_fops.c : capture_start : buf is NULL!\n");
+	}
+
+	chan->cur_buf = buf;
+	
+	tegra_channel_surface_setup(chan, buf, 0);
+
+	if (!is_streaming) {
+		int err = false;
+		u32 thresh[TEGRA_CSI_BLOCKS];
+		struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
+		struct nvhost_syncpt *syncpt =
+			nvhost_get_syncpt_owner_struct(chan->syncpt[i][FE_SYNCPT_IDX], &master->syncpt);
+		struct nvhost_intr *intr = &(syncpt_to_dev(syncpt)->intr);
+		
+		err = tegra_channel_set_stream(chan, true);
+		if (err < 0)
+			return err;
+		/*
+		 * Increment syncpt for ATOMP_FE
+		 *
+		 * This is needed in order to keep the syncpt max up to date,
+		 * even if we are not waiting for ATOMP_FE here
+		 */
+		for (i = 0; i < chan->valid_ports; i++){
+			thresh[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+						chan->syncpt[i][FE_SYNCPT_IDX], 1);
+		}
+
+		/* keep host alive */
+		err = nvhost_module_busy(syncpt_to_dev(syncpt)->dev);
+		if (err)
+			return err;
+
+		/* set_syncpt_threshold - enable interrupt */
+		intr_op().set_syncpt_threshold(intr, chan->syncpt[i][FE_SYNCPT_IDX], thresh[0]);
+		intr_op().enable_syncpt_intr(intr, chan->syncpt[i][FE_SYNCPT_IDX]);
+	}
+
+	for (i = 0; i < chan->valid_ports; i++) {
+		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+		vi4_channel_write(chan, chan->vnc_id[i],
+			CONTROL, SINGLESHOT | MATCH_STATE_EN);
+	}
+
+	return 0;
+	
+}
+
+#if 0
 static int tegra_channel_kthread_capture_start(void *data)
 {
 	struct tegra_channel *chan = data;
@@ -760,6 +828,7 @@ static int tegra_channel_kthread_release(void *data)
 
 	return 0;
 }
+#endif
 
 static void tegra_channel_stop_kthreads(struct tegra_channel *chan)
 {
@@ -875,6 +944,20 @@ static int tegra_channel_update_clknbw(struct tegra_channel *chan, u8 on)
 		dev_info(chan->vi->dev,
 		"WAR:Calculation not precise.Ignore LA failure\n");
 	return 0;
+}
+
+static void tegra_do_tasklet(unsigned long data)
+{
+	struct tegra_channel *chan = (struct tegra_channel *)data;
+	struct tegra_channel_buffer *buf;
+
+	buf = dequeue_inflight(chan);
+	if (!buf)
+		return;
+
+	buf->state = VB2_BUF_STATE_DONE;
+
+	release_buffer(chan, buf);
 }
 
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
@@ -1002,6 +1085,11 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	INIT_WORK(&chan->error_work, tegra_channel_error_worker);
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
 
+	tasklet_init(&chan->tasklet_vi4, tegra_do_tasklet, (unsigned long)chan);
+
+	capture_start(chan);
+	
+#if 0
 	/* Start kthread to capture data to buffer */
 	chan->kthread_capture_start = kthread_run(
 					tegra_channel_kthread_capture_start,
@@ -1023,6 +1111,7 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 		ret = PTR_ERR(chan->kthread_release);
 		goto error_capture_setup;
 	}
+#endif
 
 	return 0;
 

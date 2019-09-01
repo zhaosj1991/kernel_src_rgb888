@@ -31,6 +31,7 @@
 #include <media/videobuf2-core.h>
 
 #include <linux/workqueue.h>
+#include <linux/interrupt.h>
 
 #include "core.h"
 #include "../csi/csi.h"
@@ -224,6 +225,8 @@ struct tegra_channel {
 	struct device_node *endpoint_node; /* endpoint of_node in vi */
 	unsigned int subdevs_bound;
 	unsigned int link_status;
+	struct tasklet_struct tasklet_vi4;
+	struct tegra_channel_buffer *cur_buf;
 };
 
 #define to_tegra_channel(vdev) \
