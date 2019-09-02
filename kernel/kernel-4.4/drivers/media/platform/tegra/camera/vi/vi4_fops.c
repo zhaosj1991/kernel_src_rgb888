@@ -715,7 +715,7 @@ static int capture_start(struct tegra_channel *chan)
 	int i = 0;
 	int err = false;
 	u32 thresh[TEGRA_CSI_BLOCKS];
-	int index = 0;
+	//int index = 0;
 
 	buf = dequeue_buffer(chan);
 	if (!buf){
@@ -727,11 +727,11 @@ static int capture_start(struct tegra_channel *chan)
 	tegra_channel_surface_setup(chan, buf, 0);
 
 	if (!is_streaming) {
-		/*struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
+		struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
 		struct nvhost_syncpt *syncpt =
 			nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], &master->syncpt);
 		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], syncpt);
-		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);*/
+		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);
 		
 		err = tegra_channel_set_stream(chan, true);
 		if (err < 0)
@@ -748,7 +748,12 @@ static int capture_start(struct tegra_channel *chan)
 						chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		}
 
-#if 0
+		for (i = 0; i < chan->valid_ports; i++) {
+			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+			vi4_channel_write(chan, chan->vnc_id[i],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+		}
 
 		/* keep host alive */
 		err = nvhost_module_busy(syncpt_to_dev(syncpt)->dev);
@@ -758,23 +763,6 @@ static int capture_start(struct tegra_channel *chan)
 		/* set_syncpt_threshold - enable interrupt */
 		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][FE_SYNCPT_IDX], thresh[0]);
 		intr_op().enable_syncpt_intr(intr, chan->syncpt[0][FE_SYNCPT_IDX]);
-	#endif
-	}
-
-	for (i = 0; i < chan->valid_ports; i++) {
-		dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
-		vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
-		vi4_channel_write(chan, chan->vnc_id[i],
-			CONTROL, SINGLESHOT | MATCH_STATE_EN);
-	}
-
-	for (index = 0; index < chan->valid_ports; index++) {
-		err = nvhost_syncpt_wait_timeout_ext(chan->vi->ndev,
-			chan->syncpt[index][FE_SYNCPT_IDX], thresh[index],
-			chan->timeout, NULL, NULL);
-		if (err)
-			dev_err(&chan->video.dev,
-				"MW_ACK_DONE syncpoint time out!%d\n", index);
 	}
 
 	return 0;
@@ -966,14 +954,14 @@ static void tegra_do_tasklet(unsigned long data)
 	struct tegra_channel *chan = (struct tegra_channel *)data;
 	struct tegra_channel_buffer *buf;
 
-	//printk("^^^^^^^^^^^^^ tegra_do_tasklet 0\n");
+	if (chan->capture_state != CAPTURE_ERROR)
+		chan->capture_state = CAPTURE_GOOD;
 
 	buf = dequeue_inflight(chan);
 	if (!buf)
 		return;
-
-	//printk("^^^^^^^^^^^^^ tegra_do_tasklet 1\n");
-
+	
+	buf->version = chan->capture_version;
 	buf->state = VB2_BUF_STATE_DONE;
 
 	release_buffer(chan, buf);

@@ -48,6 +48,11 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 {
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	struct tegra_channel_buffer *buf;
+
+	if (!is_streaming){
+		printk("### vi_chan_capture is_streaming is false !\n");
+		return;
+	}
 	
 	/* Put buffer into the release queue */
 	spin_lock(&chan->release_lock);
@@ -61,12 +66,6 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	}
 
 	chan->cur_buf = buf;
-
-	if (!is_streaming){
-		printk("### vi_chan_capture is_streaming is false !\n");
-		return;
-	}
-
 	tegra_channel_surface_setup(chan, buf, 0);
 
 	vi4_channel_write(chan, chan->vnc_id[0], CHANNEL_COMMAND, LOAD);
@@ -77,7 +76,7 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	spin_lock(&syncpt->lock);
 
 	// increase thresh & enable interrupt
-	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
+	intr_set_syncpt_threshold(intr, syncpt->id, (threshold + 1) & 0x3fffff);
 	intr_enable_syncpt_intr(intr, syncpt->id);
 
 	/* release syncpt lock */
