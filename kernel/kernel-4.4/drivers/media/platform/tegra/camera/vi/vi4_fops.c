@@ -730,7 +730,7 @@ static int capture_start(struct tegra_channel *chan)
 		/*struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
 		struct nvhost_syncpt *syncpt =
 			nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], &master->syncpt);
-		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[i][FE_SYNCPT_IDX], syncpt);
+		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], syncpt);
 		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);*/
 		
 		err = tegra_channel_set_stream(chan, true);
@@ -756,8 +756,8 @@ static int capture_start(struct tegra_channel *chan)
 			return err;
 
 		/* set_syncpt_threshold - enable interrupt */
-		intr_op().set_syncpt_threshold(intr, chan->syncpt[i][FE_SYNCPT_IDX], thresh[0]);
-		intr_op().enable_syncpt_intr(intr, chan->syncpt[i][FE_SYNCPT_IDX]);
+		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][FE_SYNCPT_IDX], thresh[0]);
+		intr_op().enable_syncpt_intr(intr, chan->syncpt[0][FE_SYNCPT_IDX]);
 	#endif
 	}
 
