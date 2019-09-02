@@ -732,10 +732,6 @@ static int capture_start(struct tegra_channel *chan)
 			nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], &master->syncpt);
 		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], syncpt);
 		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);
-		
-		err = tegra_channel_set_stream(chan, true);
-		if (err < 0)
-			return err;
 
 		/*
 		 * Increment syncpt for ATOMP_FE
@@ -748,13 +744,6 @@ static int capture_start(struct tegra_channel *chan)
 						chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		}
 
-		for (i = 0; i < chan->valid_ports; i++) {
-			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
-			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
-			vi4_channel_write(chan, chan->vnc_id[i],
-				CONTROL, SINGLESHOT | MATCH_STATE_EN);
-		}
-
 		/* keep host alive */
 		err = nvhost_module_busy(syncpt_to_dev(syncpt)->dev);
 		if (err)
@@ -763,6 +752,17 @@ static int capture_start(struct tegra_channel *chan)
 		/* set_syncpt_threshold - enable interrupt */
 		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][FE_SYNCPT_IDX], thresh[0]);
 		intr_op().enable_syncpt_intr(intr, chan->syncpt[0][FE_SYNCPT_IDX]);
+
+		for (i = 0; i < chan->valid_ports; i++) {
+			dev_dbg(&chan->video.dev, "chan->valid_ports = %d\n", i);
+			vi4_channel_write(chan, chan->vnc_id[i], CHANNEL_COMMAND, LOAD);
+			vi4_channel_write(chan, chan->vnc_id[i],
+				CONTROL, SINGLESHOT | MATCH_STATE_EN);
+		}
+
+		err = tegra_channel_set_stream(chan, true);
+		if (err < 0)
+			return err;
 	}
 
 	return 0;

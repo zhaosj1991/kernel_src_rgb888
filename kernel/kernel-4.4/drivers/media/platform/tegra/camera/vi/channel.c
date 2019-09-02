@@ -545,6 +545,8 @@ int tegra_channel_set_stream(struct tegra_channel *chan, bool on)
 	if (atomic_read(&chan->is_streaming) == on)
 		return 0;
 
+	atomic_set(&chan->is_streaming, on);
+
 	if (on) {
 		/* Enable CSI before sensor. Reason is as follows:
 		 * CSI is able to catch the very first clk transition.
@@ -567,8 +569,6 @@ int tegra_channel_set_stream(struct tegra_channel *chan, bool on)
 				ret = err;
 		}
 	}
-
-	atomic_set(&chan->is_streaming, on);
 	return ret;
 }
 
