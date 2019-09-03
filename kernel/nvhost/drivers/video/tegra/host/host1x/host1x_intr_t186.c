@@ -76,7 +76,7 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	spin_lock(&syncpt->lock);
 
 	// increase thresh & enable interrupt
-	intr_set_syncpt_threshold(intr, syncpt->id, (threshold + 1) & 0x3fffff);
+	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
 	intr_enable_syncpt_intr(intr, syncpt->id);
 
 	/* release syncpt lock */
