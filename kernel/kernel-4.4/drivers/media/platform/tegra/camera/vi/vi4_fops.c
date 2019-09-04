@@ -714,7 +714,8 @@ static int capture_start(struct tegra_channel *chan)
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	int i = 0;
 	int err = false;
-	u32 thresh[TEGRA_CSI_BLOCKS];
+	u32 thresh_sof[TEGRA_CSI_BLOCKS];
+	u32 thresh_eof[TEGRA_CSI_BLOCKS];
 	//int index = 0;
 
 	buf = dequeue_buffer(chan);
@@ -733,6 +734,11 @@ static int capture_start(struct tegra_channel *chan)
 		struct nvhost_syncpt *sp = nvhost_get_syncpt_owner_struct(chan->syncpt[0][FE_SYNCPT_IDX], syncpt);
 		struct nvhost_intr *intr = &(syncpt_to_dev(sp)->intr);
 
+		for (i = 0; i < chan->valid_ports; i++){
+			thresh_sof[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+						chan->syncpt[i][SOF_SYNCPT_IDX], 1);
+		}
+
 		/*
 		 * Increment syncpt for ATOMP_FE
 		 *
@@ -740,7 +746,7 @@ static int capture_start(struct tegra_channel *chan)
 		 * even if we are not waiting for ATOMP_FE here
 		 */
 		for (i = 0; i < chan->valid_ports; i++){
-			thresh[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
+			thresh_eof[i] = nvhost_syncpt_incr_max_ext(chan->vi->ndev,
 						chan->syncpt[i][FE_SYNCPT_IDX], 1);
 		}
 
@@ -750,7 +756,11 @@ static int capture_start(struct tegra_channel *chan)
 			return err;
 
 		/* set_syncpt_threshold - enable interrupt */
-		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][FE_SYNCPT_IDX], thresh[0]);
+		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][SOF_SYNCPT_IDX], thresh_sof[0]);
+		intr_op().enable_syncpt_intr(intr, chan->syncpt[0][SOF_SYNCPT_IDX]);
+
+		/* set_syncpt_threshold - enable interrupt */
+		intr_op().set_syncpt_threshold(intr, chan->syncpt[0][FE_SYNCPT_IDX], thresh_eof[0]);
 		intr_op().enable_syncpt_intr(intr, chan->syncpt[0][FE_SYNCPT_IDX]);
 
 		for (i = 0; i < chan->valid_ports; i++) {

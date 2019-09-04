@@ -54,11 +54,6 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 		return;
 	}
 	
-	/* Put buffer into the release queue */
-	spin_lock(&chan->release_lock);
-	list_add_tail(&chan->cur_buf->queue, &chan->release);
-	spin_unlock(&chan->release_lock);
-	
 	buf = dequeue_buffer(chan);
 	if (!buf) {
 		printk("### vi_chan_capture chan->capture is NULL !\n");
@@ -81,10 +76,37 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 
 	/* release syncpt lock */
 	spin_unlock(&syncpt->lock);
+}
+
+static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr,
+			     struct nvhost_intr_syncpt *syncpt,
+			     u32 threshold)
+{
+	bool is_streaming = atomic_read(&chan->is_streaming);
+	if (!is_streaming){
+		printk("### vi_chan_capture is_streaming is false !\n");
+		return;
+	}
+	
+	/* Put buffer into the release queue */
+	spin_lock(&chan->release_lock);
+	list_add_tail(&chan->cur_buf->queue, &chan->release);
+	spin_unlock(&chan->release_lock);
+	
+	/* take lock on syncpt list */
+	spin_lock(&syncpt->lock);
+
+	// increase thresh & enable interrupt
+	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
+	intr_enable_syncpt_intr(intr, syncpt->id);
+
+	/* release syncpt lock */
+	spin_unlock(&syncpt->lock);
 		
 	// schedule tasklet to release buffer
 	tasklet_schedule(&chan->tasklet_vi4);
 }
+
 static void vi_syncpt_thresh_fn(void *dev_id, struct tegra_channel *chan)
 {
 	struct nvhost_intr_syncpt *syncpt = dev_id;
@@ -100,7 +122,11 @@ static void vi_syncpt_thresh_fn(void *dev_id, struct tegra_channel *chan)
 		return;
 	}
 
-	vi_chan_capture(chan, intr, syncpt,
+	if (id == 22)
+		vi_chan_capture(chan, intr, syncpt,
+				nvhost_syncpt_update_min(&dev->syncpt, id));
+	else
+		vi_chan_release(chan, intr, syncpt,
 				nvhost_syncpt_update_min(&dev->syncpt, id));
 
 	nvhost_module_idle(dev->dev);
@@ -143,8 +169,8 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 				dev_warn(&dev->dev->dev, "%s(): syncpoint id %d incremented\n",
 					 __func__, graphics_host_sp);
 				nvhost_syncpt_patch_check(&dev->syncpt);
-				intr_syncpt_intr_ack(sp, false);
-			} if (sp_id == 23){
+				intr_syncpt_intr_ack(sp, false); 
+			} if (sp_id == 22 || sp_id == 23){
 				struct tegra_mc_vi *mc_vi = dev->mc_vi;
 				struct tegra_channel *chan = list_first_entry(&(mc_vi->vi_chans), struct tegra_channel, list);
 				
