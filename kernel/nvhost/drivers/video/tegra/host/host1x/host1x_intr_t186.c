@@ -134,6 +134,38 @@ static void vi_syncpt_thresh_fn(void *dev_id, struct tegra_channel *chan)
 	nvhost_module_idle(dev->dev);
 }
 
+s64 sof_time_sum = 0;
+EXPORT_SYMBOL(sof_time_sum);
+
+s64 sof_time_count = 0;
+EXPORT_SYMBOL(sof_time_count);
+
+s64 sof_time_aver = 0;
+EXPORT_SYMBOL(sof_time_aver);
+
+s64 sof_time_max = 0;
+EXPORT_SYMBOL(sof_time_max);
+
+s64 sof_time_min = 0xffffffffff;
+EXPORT_SYMBOL(sof_time_min);
+
+
+s64 eof_time_sum = 0;
+EXPORT_SYMBOL(eof_time_sum);
+
+s64 eof_time_count = 0;
+EXPORT_SYMBOL(eof_time_count);
+
+s64 eof_time_aver = 0;
+EXPORT_SYMBOL(eof_time_aver);
+
+s64 eof_time_max = 0;
+EXPORT_SYMBOL(eof_time_max);
+
+s64 eof_time_min = 0xffffffffff;
+EXPORT_SYMBOL(eof_time_min);
+
+
 static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 {
 	struct nvhost_master *dev = dev_id;
@@ -175,6 +207,9 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 			} if (sp_id == 22 || sp_id == 23){
 				struct tegra_mc_vi *mc_vi = dev->mc_vi;
 				struct tegra_channel *chan = list_first_entry(&(mc_vi->vi_chans), struct tegra_channel, list);
+				s64 time_begin, time_end, time_us;
+
+				time_begin = (ktime_get()).tv64;
 				
 				if (chan == NULL){
 					printk("### host1x_intr_t186.c : syncpt_thresh_cascade_isr chan is NULL!\n");
@@ -183,6 +218,28 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 					intr_syncpt_intr_ack(sp, true);
 					vi_syncpt_thresh_fn(sp, chan);
 				}
+
+				time_end = (ktime_get()).tv64;
+				time_us = (time_end - time_begin) / 1000;
+
+				if (sp_id == 22){
+					sof_time_count++;
+					sof_time_sum += time_us;
+					sof_time_aver = sof_time_sum / sof_time_count;
+					if (time_us < sof_time_min)
+						sof_time_min = time_us;
+					if (time_us > sof_time_max)
+						sof_time_max = time_us;
+				}else{
+					eof_time_count++;
+					eof_time_sum += time_us;
+					eof_time_aver = eof_time_sum / eof_time_count;
+					if (time_us < eof_time_min)
+						eof_time_min = time_us;
+					if (time_us > eof_time_max)
+						eof_time_max = time_us;
+				}
+				
 			}else {
 				intr_syncpt_intr_ack(sp, true);
 				nvhost_syncpt_thresh_fn(sp);

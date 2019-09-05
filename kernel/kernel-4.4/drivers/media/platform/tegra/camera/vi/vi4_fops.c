@@ -979,6 +979,18 @@ static void tegra_do_tasklet(unsigned long data)
 	release_buffer(chan, buf);
 }
 
+extern s64 sof_time_sum;
+extern s64 sof_time_count;
+extern s64 sof_time_aver;
+extern s64 sof_time_max;
+extern s64 sof_time_min;
+
+extern s64 eof_time_sum;
+extern s64 eof_time_count;
+extern s64 eof_time_aver;
+extern s64 eof_time_max;
+extern s64 eof_time_min;
+
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
@@ -1103,6 +1115,18 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 
 	INIT_WORK(&chan->error_work, tegra_channel_error_worker);
 	INIT_WORK(&chan->status_work, tegra_channel_status_worker);
+
+	sof_time_sum = 0;
+	sof_time_count = 0;
+	sof_time_aver = 0;
+	sof_time_max = 0;
+	sof_time_min = 0xffffffffff;
+
+	eof_time_sum = 0;
+	eof_time_count = 0;
+	eof_time_aver = 0;
+	eof_time_max = 0;
+	eof_time_min = 0xffffffffff;
 
 	tasklet_init(&chan->tasklet_vi4, tegra_do_tasklet, (unsigned long)chan);
 
