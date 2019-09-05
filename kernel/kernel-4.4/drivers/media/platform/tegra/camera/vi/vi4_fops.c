@@ -651,6 +651,7 @@ static int tegra_channel_stop_increments(struct tegra_channel *chan)
 	return 0;
 }
 
+#if 0
 static void tegra_channel_capture_done(struct tegra_channel *chan)
 {
 	struct timespec ts;
@@ -707,7 +708,7 @@ static void tegra_channel_capture_done(struct tegra_channel *chan)
 	chan->capture_state = CAPTURE_IDLE;
 	release_buffer(chan, buf);
 }
-
+#endif
 
 static int capture_start(struct tegra_channel *chan)
 {
@@ -1151,7 +1152,7 @@ EXPORT_SYMBOL(vi4_channel_start_streaming);
 int vi4_channel_stop_streaming(struct vb2_queue *vq)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
-	bool is_streaming = atomic_read(&chan->is_streaming);
+	//bool is_streaming = atomic_read(&chan->is_streaming);
 	int i;
 	/*struct nvhost_master *master = nvhost_get_host(chan->vi->ndev);
 	struct nvhost_syncpt *syncpt =
@@ -1172,8 +1173,8 @@ int vi4_channel_stop_streaming(struct vb2_queue *vq)
 	if (!chan->bypass) {
 		tegra_channel_stop_kthreads(chan);
 		/* wait for last frame memory write ack */
-		if (is_streaming)
-			tegra_channel_capture_done(chan);
+		//if (is_streaming)
+			//tegra_channel_capture_done(chan);
 		for (i = 0; i < chan->valid_ports; i++)
 			tegra_channel_notify_disable(chan, i);
 
