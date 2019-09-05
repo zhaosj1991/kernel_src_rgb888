@@ -146,6 +146,10 @@ EXPORT_SYMBOL(sof_time_aver);
 s64 sof_time_max = 0;
 EXPORT_SYMBOL(sof_time_max);
 
+s64 sof_time_max_index = 0;
+EXPORT_SYMBOL(sof_time_max_index);
+
+
 s64 sof_time_min = 0xffffffffff;
 EXPORT_SYMBOL(sof_time_min);
 
@@ -161,6 +165,9 @@ EXPORT_SYMBOL(eof_time_aver);
 
 s64 eof_time_max = 0;
 EXPORT_SYMBOL(eof_time_max);
+
+s64 eof_time_max_index = 0;
+EXPORT_SYMBOL(eof_time_max_index);
 
 s64 eof_time_min = 0xffffffffff;
 EXPORT_SYMBOL(eof_time_min);
@@ -228,16 +235,20 @@ static irqreturn_t syncpt_thresh_cascade_isr(int irq, void *dev_id)
 					sof_time_aver = sof_time_sum / sof_time_count;
 					if (time_us < sof_time_min)
 						sof_time_min = time_us;
-					if (time_us > sof_time_max)
+					if (time_us > sof_time_max){
+						sof_time_max_index = sof_time_count;
 						sof_time_max = time_us;
+					}
 				}else{
 					eof_time_count++;
 					eof_time_sum += time_us;
 					eof_time_aver = eof_time_sum / eof_time_count;
 					if (time_us < eof_time_min)
 						eof_time_min = time_us;
-					if (time_us > eof_time_max)
+					if (time_us > eof_time_max){
+						eof_time_max_index = eof_time_count;
 						eof_time_max = time_us;
+					}	
 				}
 				
 			}else {

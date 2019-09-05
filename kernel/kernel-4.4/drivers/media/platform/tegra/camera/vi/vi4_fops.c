@@ -983,12 +983,14 @@ extern s64 sof_time_sum;
 extern s64 sof_time_count;
 extern s64 sof_time_aver;
 extern s64 sof_time_max;
+extern s64 sof_time_max_index;
 extern s64 sof_time_min;
 
 extern s64 eof_time_sum;
 extern s64 eof_time_count;
 extern s64 eof_time_aver;
 extern s64 eof_time_max;
+extern s64 eof_time_max_index;
 extern s64 eof_time_min;
 
 int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
@@ -1120,12 +1122,14 @@ int vi4_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	sof_time_count = 0;
 	sof_time_aver = 0;
 	sof_time_max = 0;
+	sof_time_max_index = 0;
 	sof_time_min = 0xffffffffff;
 
 	eof_time_sum = 0;
 	eof_time_count = 0;
 	eof_time_aver = 0;
 	eof_time_max = 0;
+	eof_time_max_index = 0;
 	eof_time_min = 0xffffffffff;
 
 	tasklet_init(&chan->tasklet_vi4, tegra_do_tasklet, (unsigned long)chan);
