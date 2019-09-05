@@ -227,6 +227,7 @@ struct tegra_channel {
 	unsigned int link_status;
 	struct tasklet_struct tasklet_vi4;
 	struct tegra_channel_buffer *cur_buf;
+	struct tegra_channel_buffer *future_buf;
 };
 
 #define to_tegra_channel(vdev) \

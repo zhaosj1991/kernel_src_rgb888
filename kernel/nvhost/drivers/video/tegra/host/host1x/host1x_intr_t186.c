@@ -60,7 +60,7 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 		return;
 	}
 
-	chan->cur_buf = buf;
+	chan->future_buf = buf;
 	tegra_channel_surface_setup(chan, buf, 0);
 
 	vi4_channel_write(chan, chan->vnc_id[0], CHANNEL_COMMAND, LOAD);
@@ -92,6 +92,8 @@ static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr
 	spin_lock(&chan->release_lock);
 	list_add_tail(&chan->cur_buf->queue, &chan->release);
 	spin_unlock(&chan->release_lock);
+
+	chan->cur_buf = chan->future_buf;
 	
 	/* take lock on syncpt list */
 	spin_lock(&syncpt->lock);
