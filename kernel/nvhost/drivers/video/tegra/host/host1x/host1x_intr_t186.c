@@ -42,6 +42,12 @@ static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 					  u32 id, u32 thresh);
 
 
+u64 vi_capture_count = 0; 
+u32 no_buf_count = 0;
+EXPORT_SYMBOL(no_buf_count);
+u64 no_buf_note[100];
+EXPORT_SYMBOL(no_buf_note);
+
 static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr,
 			     struct nvhost_intr_syncpt *syncpt,
 			     u32 threshold)
@@ -56,9 +62,13 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	
 	buf = dequeue_buffer(chan);
 	if (!buf) {
-		printk("### vi_chan_capture chan->capture is NULL !\n");
-		return;
+		buf = chan->spare_buf;
+		if (no_buf_count < 100)
+			no_buf_note[no_buf_count] = vi_capture_count;
+		no_buf_count++;
 	}
+
+	vi_capture_count++;
 
 	chan->future_buf = buf;
 	tegra_channel_surface_setup(chan, buf, 0);
@@ -87,11 +97,13 @@ static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr
 		printk("### vi_chan_capture is_streaming is false !\n");
 		return;
 	}
-	
-	/* Put buffer into the release queue */
-	spin_lock(&chan->release_lock);
-	list_add_tail(&chan->cur_buf->queue, &chan->release);
-	spin_unlock(&chan->release_lock);
+
+	if (chan->cur_buf != chan->spare_buf){
+		/* Put buffer into the release queue */
+		spin_lock(&chan->release_lock);
+		list_add_tail(&chan->cur_buf->queue, &chan->release);
+		spin_unlock(&chan->release_lock);
+	}
 
 	chan->cur_buf = chan->future_buf;
 	
