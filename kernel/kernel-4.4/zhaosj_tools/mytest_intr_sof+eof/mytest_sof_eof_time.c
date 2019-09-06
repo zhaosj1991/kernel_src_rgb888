@@ -69,7 +69,7 @@ static int __init helloworld_init(void)
 	 * any type of dynamic kobjects, where the name and number are
 	 * not known ahead of time.
 	 */
-	helloworld_kobj = kobject_create_and_add("mytest_notify_sys", kernel_kobj);
+	helloworld_kobj = kobject_create_and_add("my_sof_time_value", kernel_kobj);
 	if (!helloworld_kobj)
 		return -ENOMEM;
 
