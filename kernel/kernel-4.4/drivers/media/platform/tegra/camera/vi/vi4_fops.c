@@ -712,6 +712,8 @@ static void tegra_channel_capture_done(struct tegra_channel *chan)
 
 extern u64 vi_capture_count; 
 extern u32 no_buf_count;
+extern u64 sof_intr_count;
+extern u64 eof_intr_count;
 
 static int capture_start(struct tegra_channel *chan)
 {
@@ -725,6 +727,8 @@ static int capture_start(struct tegra_channel *chan)
 
 	vi_capture_count = 0;
 	no_buf_count = 0;
+	sof_intr_count = 0;
+	eof_intr_count = 0;
 
 	buf = dequeue_buffer(chan);
 	if (!buf){
