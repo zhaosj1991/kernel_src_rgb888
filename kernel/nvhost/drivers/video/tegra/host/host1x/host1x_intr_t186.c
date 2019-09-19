@@ -42,6 +42,18 @@ static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 					  u32 id, u32 thresh);
 
 
+u64 vi_capture_count = 0; 
+u32 no_buf_count = 0;
+EXPORT_SYMBOL(no_buf_count);
+u64 no_buf_note[100];
+EXPORT_SYMBOL(no_buf_note);
+
+u64 sof_intr_count = 0;
+EXPORT_SYMBOL(sof_intr_count);
+
+u64 eof_intr_count = 0;
+EXPORT_SYMBOL(eof_intr_count);
+
 static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr,
 			     struct nvhost_intr_syncpt *syncpt,
 			     u32 threshold)
@@ -49,16 +61,27 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	struct tegra_channel_buffer *buf;
 
+	sof_intr_count++;
 	if (!is_streaming){
 		printk("### vi_chan_capture is_streaming is false !\n");
 		return;
 	}
-	
-	buf = dequeue_buffer(chan);
-	if (!buf) {
-		printk("### vi_chan_capture chan->capture is NULL !\n");
-		return;
+
+	if (list_empty(&chan->capture))
+		buf = NULL;
+	else{
+		buf = list_entry(chan->capture.next, struct tegra_channel_buffer, queue);
+		list_del_init(&buf->queue);
 	}
+	
+	if (!buf) {
+		buf = chan->spare_buf;
+		if (no_buf_count < 100)
+			no_buf_note[no_buf_count] = vi_capture_count;
+		no_buf_count++;
+	}
+
+	vi_capture_count++;
 
 	chan->future_buf = buf;
 	tegra_channel_surface_setup(chan, buf, 0);
@@ -66,16 +89,11 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	vi4_channel_write(chan, chan->vnc_id[0], CHANNEL_COMMAND, LOAD);
 	vi4_channel_write(chan, chan->vnc_id[0],
 				CONTROL, SINGLESHOT | MATCH_STATE_EN);
-	
-	/* take lock on syncpt list */
-	spin_lock(&syncpt->lock);
 
 	// increase thresh & enable interrupt
 	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
 	intr_enable_syncpt_intr(intr, syncpt->id);
-
-	/* release syncpt lock */
-	spin_unlock(&syncpt->lock);
+	
 }
 
 static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr,
@@ -83,27 +101,22 @@ static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr
 			     u32 threshold)
 {
 	bool is_streaming = atomic_read(&chan->is_streaming);
+	eof_intr_count++;
 	if (!is_streaming){
 		printk("### vi_chan_capture is_streaming is false !\n");
 		return;
 	}
-	
-	/* Put buffer into the release queue */
-	spin_lock(&chan->release_lock);
-	list_add_tail(&chan->cur_buf->queue, &chan->release);
-	spin_unlock(&chan->release_lock);
+
+	if (chan->cur_buf != chan->spare_buf){
+		/* Put buffer into the release queue */
+		list_add_tail(&chan->cur_buf->queue, &chan->release);
+	}
 
 	chan->cur_buf = chan->future_buf;
-	
-	/* take lock on syncpt list */
-	spin_lock(&syncpt->lock);
 
 	// increase thresh & enable interrupt
 	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
 	intr_enable_syncpt_intr(intr, syncpt->id);
-
-	/* release syncpt lock */
-	spin_unlock(&syncpt->lock);
 		
 	// schedule tasklet to release buffer
 	tasklet_schedule(&chan->tasklet_vi4);
