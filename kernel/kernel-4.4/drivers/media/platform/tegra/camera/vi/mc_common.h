@@ -228,6 +228,7 @@ struct tegra_channel {
 	struct tasklet_struct tasklet_vi4;
 	struct tegra_channel_buffer *cur_buf;
 	struct tegra_channel_buffer *future_buf;
+	struct tegra_channel_buffer *spare_buf;
 };
 
 #define to_tegra_channel(vdev) \
