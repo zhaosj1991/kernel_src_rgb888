@@ -40,6 +40,7 @@ static void intr_syncpt_intr_ack(struct nvhost_intr_syncpt *syncpt,
 static void intr_enable_syncpt_intr(struct nvhost_intr *intr, u32 id);
 static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 					  u32 id, u32 thresh);
+static u32 intr_get_syncpt_val(struct nvhost_intr *intr, u32 id);
 
 
 u64 vi_capture_count = 0; 
@@ -55,11 +56,11 @@ u64 eof_intr_count = 0;
 EXPORT_SYMBOL(eof_intr_count);
 
 static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr,
-			     struct nvhost_intr_syncpt *syncpt,
-			     u32 threshold)
+			     struct nvhost_intr_syncpt *syncpt)
 {
 	bool is_streaming = atomic_read(&chan->is_streaming);
 	struct tegra_channel_buffer *buf;
+	u32 threshold = 0;
 
 	sof_intr_count++;
 	if (!is_streaming){
@@ -90,6 +91,8 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 	vi4_channel_write(chan, chan->vnc_id[0],
 				CONTROL, SINGLESHOT | MATCH_STATE_EN);
 
+	threshold = intr_get_syncpt_val(intr, syncpt->id);
+
 	// increase thresh & enable interrupt
 	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
 	intr_enable_syncpt_intr(intr, syncpt->id);
@@ -97,10 +100,10 @@ static void vi_chan_capture(struct tegra_channel *chan, struct nvhost_intr *intr
 }
 
 static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr,
-			     struct nvhost_intr_syncpt *syncpt,
-			     u32 threshold)
+			     struct nvhost_intr_syncpt *syncpt)
 {
 	bool is_streaming = atomic_read(&chan->is_streaming);
+	u32 threshold = 0;
 	eof_intr_count++;
 	if (!is_streaming){
 		printk("### vi_chan_capture is_streaming is false !\n");
@@ -113,6 +116,8 @@ static void vi_chan_release(struct tegra_channel *chan, struct nvhost_intr *intr
 	}
 
 	chan->cur_buf = chan->future_buf;
+
+	threshold = intr_get_syncpt_val(intr, syncpt->id);
 
 	// increase thresh & enable interrupt
 	intr_set_syncpt_threshold(intr, syncpt->id, threshold + 1);
@@ -127,24 +132,22 @@ static void vi_syncpt_thresh_fn(void *dev_id, struct tegra_channel *chan)
 	struct nvhost_intr_syncpt *syncpt = dev_id;
 	unsigned int id = syncpt->id;
 	struct nvhost_intr *intr = intr_syncpt_to_intr(syncpt);
-	struct nvhost_master *dev = intr_to_dev(intr);
-	int err;
+	//struct nvhost_master *dev = intr_to_dev(intr);
+	//int err;
 
 	/* make sure host1x is powered */
-	err = nvhost_module_busy(dev->dev);
+/*	err = nvhost_module_busy(dev->dev);
 	if (err) {
 		WARN(1, "failed to powerON host1x.");
 		return;
-	}
+	}*/
 
 	if (id == 22)
-		vi_chan_capture(chan, intr, syncpt,
-				nvhost_syncpt_update_min(&dev->syncpt, id));
+		vi_chan_capture(chan, intr, syncpt);
 	else
-		vi_chan_release(chan, intr, syncpt,
-				nvhost_syncpt_update_min(&dev->syncpt, id));
+		vi_chan_release(chan, intr, syncpt);
 
-	nvhost_module_idle(dev->dev);
+//	nvhost_module_idle(dev->dev);
 }
 
 s64 sof_time_sum = 0;
@@ -287,6 +290,14 @@ static void intr_set_syncpt_threshold(struct nvhost_intr *intr,
 		(host1x_sync_syncpt_int_thresh_0_r() + id * REGISTER_STRIDE),
 		thresh);
 }
+
+static u32 intr_get_syncpt_val(struct nvhost_intr *intr, u32 id)
+{
+	struct nvhost_master *dev = intr_to_dev(intr);
+	return host1x_readl(dev->dev,
+		(host1x_sync_syncpt_int_thresh_0_r() + id * REGISTER_STRIDE));
+}
+
 
 static void intr_enable_syncpt_intr(struct nvhost_intr *intr, u32 id)
 {

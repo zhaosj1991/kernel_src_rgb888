@@ -4,43 +4,30 @@
 #include <linux/sysfs.h>
 #include <linux/string.h>
 
+extern u32 no_buf_count;
+extern u64 no_buf_note[100];
 
-extern s64 sof_time_sum;
-extern s64 sof_time_count;
-extern s64 sof_time_aver;
-extern s64 sof_time_max;
-extern s64 sof_time_max_index;
-extern s64 sof_time_min;
-
-static ssize_t sof_time_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+static ssize_t no_buf_note_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
-   return sprintf(buf, " sof_time_sum = %lld\n sof_time_count = %lld\n sof_time_aver = %lld\n sof_time_max = %lld\n sof_time_max_index = %lld\n sof_time_min = %lld\n", 
-                  sof_time_sum, sof_time_count, sof_time_aver, sof_time_max, sof_time_max_index, sof_time_min);
+   	int i = 0;
+    char wait_time_temp[3000];
+
+	sprintf(wait_time_temp, "no_buf_count : %d\n", no_buf_count);
+    
+    for (i = 0; i < no_buf_count; ++i)
+        sprintf(wait_time_temp, "%sno_buf_note[%d] : %lld\n", wait_time_temp, i, no_buf_note[i]);
+
+   	return sprintf(buf, "%s", wait_time_temp);
 }
 
-extern s64 eof_time_sum;
-extern s64 eof_time_count;
-extern s64 eof_time_aver;
-extern s64 eof_time_max;
-extern s64 eof_time_max_index;
-extern s64 eof_time_min;
-
-static ssize_t eof_time_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-   return sprintf(buf, " eof_time_sum = %lld\n eof_time_count = %lld\n eof_time_aver = %lld\n eof_time_max = %lld\n eof_time_max_index = %lld\n eof_time_min = %lld\n", 
-                  eof_time_sum, eof_time_count, eof_time_aver, eof_time_max, eof_time_max_index, eof_time_min);
-}
-
-static struct kobj_attribute sof_time_attr = __ATTR(sof_time_value, 0444, sof_time_show, NULL);
-static struct kobj_attribute eof_time_attr = __ATTR(eof_time_value, 0444, eof_time_show, NULL);
+static struct kobj_attribute no_buf_note_attr = __ATTR(no_buf_note_value, 0444, no_buf_note_show, NULL);
 
 /*
  * Create a group of attributes so that we can create and destroy them all
  * at once.
  */
 static struct attribute *attrs[] = {
-   &sof_time_attr.attr,
-   &eof_time_attr.attr,
+   &no_buf_note_attr.attr,
 	NULL,	/* need to NULL terminate the list of attributes */
 };
 
@@ -69,7 +56,7 @@ static int __init helloworld_init(void)
 	 * any type of dynamic kobjects, where the name and number are
 	 * not known ahead of time.
 	 */
-	helloworld_kobj = kobject_create_and_add("my_sof_time_value", kernel_kobj);
+	helloworld_kobj = kobject_create_and_add("my_no_buf_note_value", kernel_kobj);
 	if (!helloworld_kobj)
 		return -ENOMEM;
 
