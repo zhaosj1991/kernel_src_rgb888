@@ -221,8 +221,8 @@
 				readout_orientation = "90";
 				line_length = "2688";
 				inherent_gain = "1";
-				mclk_multiplier = "5.93";
-				pix_clk_hz = "160000000";
+				mclk_multiplier = "5.56";
+				pix_clk_hz = "150000000";
 
 				min_gain_val = "1.0";
 				max_gain_val = "16";
@@ -345,7 +345,7 @@
 					/* Declare PCL support driver (classically known as guid)  */
 					pcl_id = "v4l2_sensor";
 					/* Driver v4l2 device name */
-					devname = "ar0521 2-0036";
+					devname = "ar0521 2-0041";
 					/* Declare the device-tree hierarchy to driver instance */
 					proc-device-tree = "/proc/device-tree/i2c@3180000/ar0521@36";
 				};
