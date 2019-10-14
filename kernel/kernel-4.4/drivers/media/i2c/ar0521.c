@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define DEBUG
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/gpio.h>
@@ -28,119 +29,186 @@
 
 #include <media/tegra-v4l2-camera.h>
 #include <media/camera_common.h>
-#include <media/ov5693.h>
 
-#include "../platform/tegra/camera/camera_gpio.h"
+#include "ar0521.h"
+#include "ar0521_mode_tbls.h"
 
-#include "ov5693_mode_tbls.h"
+#define AR0521_MAX_COARSE_DIFF      6
 
-#define OV5693_MAX_COARSE_DIFF		6
+#define AR0521_GAIN_SHIFT       8
+#define AR0521_MIN_GAIN     (0x2000)
+#define AR0521_MAX_GAIN     (0x203f)
+#define AR0521_MAX_UNREAL_GAIN  (0x0F80)
+#define AR0521_MIN_FRAME_LENGTH (0x0)
+#define AR0521_MAX_FRAME_LENGTH (0x7fff)
+#define AR0521_MIN_EXPOSURE_COARSE  (0x0002)
+#define AR0521_MAX_EXPOSURE_COARSE  \
+    (AR0521_MAX_FRAME_LENGTH-AR0521_MAX_COARSE_DIFF)
+#define AR0521_DEFAULT_LINE_LENGTH  (AR0521_DEFAULT_WIDTH + AR0521_DEFAULT_LINE_BLANK)
+#define AR0521_DEFAULT_LINE_BLANK   (400)
+#define AR0521_DEFAULT_FRAME_LENGTH (AR0521_DEFAULT_HEIGHT + AR0521_DEFAULT_FRAME_BLANK)
+#define AR0521_DEFAULT_FRAME_BLANK  (300) 
 
-#define OV5693_GAIN_SHIFT		8
-#define OV5693_MIN_GAIN		(1 << OV5693_GAIN_SHIFT)
-#define OV5693_MAX_GAIN		(16 << OV5693_GAIN_SHIFT)
-#define OV5693_MAX_UNREAL_GAIN	(0x0F80)
-#define OV5693_MIN_FRAME_LENGTH	(0x0)
-#define OV5693_MAX_FRAME_LENGTH	(0x7fff)
-#define OV5693_MIN_EXPOSURE_COARSE	(0x0002)
-#define OV5693_MAX_EXPOSURE_COARSE	\
-	(OV5693_MAX_FRAME_LENGTH-OV5693_MAX_COARSE_DIFF)
-#define OV5693_DEFAULT_LINE_LENGTH	(0xA80)
-#define OV5693_DEFAULT_PIXEL_CLOCK	(160)
+#define AR0521_DEFAULT_PIXEL_CLOCK  (160)
 
-#define OV5693_DEFAULT_GAIN		OV5693_MIN_GAIN
-#define OV5693_DEFAULT_FRAME_LENGTH	(0x07C0)
-#define OV5693_DEFAULT_EXPOSURE_COARSE	\
-	(OV5693_DEFAULT_FRAME_LENGTH-OV5693_MAX_COARSE_DIFF)
+#define AR0521_DEFAULT_GAIN     AR0521_MIN_GAIN
+#define AR0521_DEFAULT_EXPOSURE_COARSE  \
+    (AR0521_DEFAULT_FRAME_LENGTH-AR0521_MAX_COARSE_DIFF)
 
-#define OV5693_DEFAULT_MODE	OV5693_MODE_2592X1944
-#define OV5693_DEFAULT_HDR_MODE	OV5693_MODE_2592X1944_HDR
-#define OV5693_DEFAULT_WIDTH	2592
-#define OV5693_DEFAULT_HEIGHT	1944
-#define OV5693_DEFAULT_DATAFMT	MEDIA_BUS_FMT_SBGGR10_1X10
-#define OV5693_DEFAULT_CLK_FREQ	24000000
+#define AR0521_DEFAULT_MODE AR0521_MODE_2592X1944
+#define AR0521_DEFAULT_HDR_MODE AR0521_MODE_2592X1944_HDR
+#define AR0521_DEFAULT_WIDTH    2592
+#define AR0521_DEFAULT_HEIGHT   1944
+#define AR0521_DEFAULT_DATAFMT  MEDIA_BUS_FMT_SBGGR10_1X10
+#define AR0521_DEFAULT_CLK_FREQ 27000000
 
-struct ov5693 {
-	struct camera_common_power_rail	power;
-	int				numctrls;
-	struct v4l2_ctrl_handler	ctrl_handler;
-	struct camera_common_eeprom_data eeprom[OV5693_EEPROM_NUM_BLOCKS];
-	u8				eeprom_buf[OV5693_EEPROM_SIZE];
-	struct i2c_client		*i2c_client;
-	struct v4l2_subdev		*subdev;
-	struct media_pad		pad;
 
-	s32				group_hold_prev;
-	u32				frame_length;
-	bool				group_hold_en;
-	struct regmap			*regmap;
-	struct camera_common_data	*s_data;
-	struct camera_common_pdata	*pdata;
-	struct v4l2_ctrl		*ctrls[];
+#define REG_ADDR_CHIP_VERSION           0x00
+#define REG_ADDR_GAIN                   0x305e
+#define REG_ADDR_EXPOSURE               0x3012
+#define REG_ADDR_EXPOSURE_COARSE        0x3012
+#define REG_ADDR_LINE_LENGTH            0x300c
+#define REG_ADDR_FRAME_LENGTH           0x300a
+#define REG_ADDR_GROUP_HOLD				0x3022
+#define REG_ADDR_WIDTH                  0x034c
+#define REG_ADDR_HEIGHT                 0x034e
+#define REG_ADDR_OFFSET_X               0x3004
+#define REG_ADDR_OFFSET_Y               0x3002
+#define REG_ADDR_OFFSET_X_END               0x3008
+#define REG_ADDR_OFFSET_Y_END               0x3006
+
+
+#define REG_ADDR_FRAME_PREAMBLE         0x31b0
+#define REG_ADDR_LINE_PREAMBLE          0x31b2
+
+
+struct ar0521 {
+    struct camera_common_power_rail power;
+    int             numctrls;
+    struct v4l2_ctrl_handler    ctrl_handler;
+    struct i2c_client       *i2c_client;
+    struct v4l2_subdev      *subdev;
+    struct media_pad        pad;
+
+    s32             group_hold_prev;
+    u32             frame_length;
+	u32             line_length;
+    bool                group_hold_en;
+    bool            override_en;
+    struct regmap           *regmap;
+    struct camera_common_data   *s_data;
+    struct camera_common_pdata  *pdata;
+	struct camera_common_frmfmt *common_fmt;
+    struct v4l2_ctrl        *ctrls[];
 };
 
-static struct regmap_config ov5693_regmap_config = {
-	.reg_bits = 16,
-	.val_bits = 8,
+static struct regmap_config ar0521_regmap_config = {
+    .reg_bits = 16,
+    .val_bits = 16,
 };
 
-static int ov5693_g_volatile_ctrl(struct v4l2_ctrl *ctrl);
-static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl);
-static void ov5693_update_ctrl_range(struct ov5693 *priv, s32 frame_length);
+static int ar0521_g_volatile_ctrl(struct v4l2_ctrl *ctrl);
+static int ar0521_s_ctrl(struct v4l2_ctrl *ctrl);
+static int __ar0521_s_ctrl(struct ar0521 *priv, u32 id, s32 val);
+static inline int ar0521_read_reg(struct camera_common_data *s_data, u16 addr, u16 *val);
+static int ar0521_write_reg(struct camera_common_data *s_data, u16 addr, u16 val);
+static int ar0521_set_gain(struct ar0521 *priv, s32 val);
 
-static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
-	.g_volatile_ctrl = ov5693_g_volatile_ctrl,
-	.s_ctrl		= ov5693_s_ctrl,
+
+
+static int ar0521_get_temper(struct ar0521 *priv, s32 *val)
+{
+    u16 data, calib1;
+    ar0521_write_reg(priv->s_data, 0x3126, 0x0001);
+    ar0521_write_reg(priv->s_data, 0x3126, 0x0021);
+    ar0521_write_reg(priv->s_data, 0x3126, 0x0011);
+
+    usleep_range(200, 210);
+
+    ar0521_read_reg(priv->s_data, 0x3124, &data);
+    ar0521_read_reg(priv->s_data, 0x3128, &calib1);
+
+    printk("data = %d, calib1 = %d\n", data, calib1);
+    *val = (data - calib1 + 90) * 100 / 151;
+
+    return 0;
+}
+
+static const struct v4l2_ctrl_ops ar0521_ctrl_ops = {
+    .g_volatile_ctrl = ar0521_g_volatile_ctrl,
+    .s_ctrl     = ar0521_s_ctrl,
 };
 
 static struct v4l2_ctrl_config ctrl_config_list[] = {
-/* Do not change the name field for the controls! */
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = TEGRA_CAMERA_CID_GAIN,
-		.name = "Gain",
+    /* Do not change the name field for the controls! */
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_CHIP_VERSION,
+        .name = "Chip Version",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
+        .min = AR0521_MIN_GAIN,
+        .max = AR0521_MAX_GAIN,
+        .def = AR0521_DEFAULT_GAIN,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = TEGRA_CAMERA_CID_GAIN,
+        .name = "Gain",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 0,
+        .max = AR0521_MAX_GAIN - AR0521_MIN_GAIN,
+        .def = 1,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_EXPOSURE,
+        .name = "Exposure Time",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 0,
+        .max = 65535,
+        .def = 2268,
+        .step = 1,
+    },
+    {
+		.ops = &ar0521_ctrl_ops,
+		.id = GALAXY_CAMERA_CID_LINE_LENGTH,
+		.name = "Line Length",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.flags = V4L2_CTRL_FLAG_SLIDER,
-		.min = OV5693_MIN_GAIN,
-		.max = OV5693_MAX_GAIN,
-		.def = OV5693_DEFAULT_GAIN,
+		.min = AR0521_MIN_FRAME_LENGTH,
+		.max = AR0521_MAX_FRAME_LENGTH,
+		.def = AR0521_DEFAULT_LINE_LENGTH,
 		.step = 1,
 	},
 	{
-		.ops = &ov5693_ctrl_ops,
+		.ops = &ar0521_ctrl_ops,
 		.id = TEGRA_CAMERA_CID_FRAME_LENGTH,
 		.name = "Frame Length",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.flags = V4L2_CTRL_FLAG_SLIDER,
-		.min = OV5693_MIN_FRAME_LENGTH,
-		.max = OV5693_MAX_FRAME_LENGTH,
-		.def = OV5693_DEFAULT_FRAME_LENGTH,
+		.min = AR0521_MIN_FRAME_LENGTH,
+		.max = AR0521_MAX_FRAME_LENGTH,
+		.def = AR0521_DEFAULT_FRAME_LENGTH,
 		.step = 1,
 	},
 	{
-		.ops = &ov5693_ctrl_ops,
+		.ops = &ar0521_ctrl_ops,
 		.id = TEGRA_CAMERA_CID_COARSE_TIME,
 		.name = "Coarse Time",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.flags = V4L2_CTRL_FLAG_SLIDER,
-		.min = OV5693_MIN_EXPOSURE_COARSE,
-		.max = OV5693_MAX_EXPOSURE_COARSE,
-		.def = OV5693_DEFAULT_EXPOSURE_COARSE,
+		.min = AR0521_MIN_EXPOSURE_COARSE,
+		.max = AR0521_MAX_EXPOSURE_COARSE,
+		.def = AR0521_DEFAULT_EXPOSURE_COARSE,
 		.step = 1,
 	},
 	{
-		.ops = &ov5693_ctrl_ops,
-		.id = TEGRA_CAMERA_CID_COARSE_TIME_SHORT,
-		.name = "Coarse Time Short",
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.flags = V4L2_CTRL_FLAG_SLIDER,
-		.min = OV5693_MIN_EXPOSURE_COARSE,
-		.max = OV5693_MAX_EXPOSURE_COARSE,
-		.def = OV5693_DEFAULT_EXPOSURE_COARSE,
-		.step = 1,
-	},
-	{
-		.ops = &ov5693_ctrl_ops,
+		.ops = &ar0521_ctrl_ops,
 		.id = TEGRA_CAMERA_CID_GROUP_HOLD,
 		.name = "Group Hold",
 		.type = V4L2_CTRL_TYPE_INTEGER_MENU,
@@ -150,8 +218,63 @@ static struct v4l2_ctrl_config ctrl_config_list[] = {
 		.def = 0,
 		.qmenu_int = switch_ctrl_qmenu,
 	},
+    /*{
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_WIDTH,
+        .name = "Width",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 2600,
+        .def = 2600,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_HEIGHT,
+        .name = "Height",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 1952,
+        .def = 1952,
+        .step = 1,
+    },*/
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_OFFSET_X,
+        .name = "Offset X",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 2603,
+        .def = 4,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_OFFSET_Y,
+        .name = "Offset Y",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 1963,
+        .def = 4,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_OFFSET_X_END,
+        .name = "Offset X End",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 2603,
+        .def = 2603,
+        .step = 1,
+    },
 	{
-		.ops = &ov5693_ctrl_ops,
+		.ops = &ar0521_ctrl_ops,
 		.id = TEGRA_CAMERA_CID_HDR_EN,
 		.name = "HDR enable",
 		.type = V4L2_CTRL_TYPE_INTEGER_MENU,
@@ -161,530 +284,585 @@ static struct v4l2_ctrl_config ctrl_config_list[] = {
 		.def = 0,
 		.qmenu_int = switch_ctrl_qmenu,
 	},
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = TEGRA_CAMERA_CID_EEPROM_DATA,
-		.name = "EEPROM Data",
-		.type = V4L2_CTRL_TYPE_STRING,
-		.flags = V4L2_CTRL_FLAG_VOLATILE,
-		.min = 0,
-		.max = OV5693_EEPROM_STR_SIZE,
-		.step = 2,
-	},
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = TEGRA_CAMERA_CID_OTP_DATA,
-		.name = "OTP Data",
-		.type = V4L2_CTRL_TYPE_STRING,
-		.flags = V4L2_CTRL_FLAG_READ_ONLY,
-		.min = 0,
-		.max = OV5693_OTP_STR_SIZE,
-		.step = 2,
-	},
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = TEGRA_CAMERA_CID_FUSE_ID,
-		.name = "Fuse ID",
-		.type = V4L2_CTRL_TYPE_STRING,
-		.flags = V4L2_CTRL_FLAG_READ_ONLY,
-		.min = 0,
-		.max = OV5693_FUSE_ID_STR_SIZE,
-		.step = 2,
-	},
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_OFFSET_Y_END,
+        .name = "Offset Y End",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 4,
+        .max = 1963,
+        .def = 1963,
+        .step = 1,
+    },
+    /*{
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_CHIP_TEMPER,
+        .name = "Chip Temperature",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
+        .min = -100,
+        .max = 100,
+        .def = 0,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_FRAME_PREAMBLE,
+        .name = "Frame Preamble",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 0,
+        .max = 10000,
+        .def = 91,
+        .step = 1,
+    },
+    {
+        .ops = &ar0521_ctrl_ops,
+        .id = GALAXY_CAMERA_CID_LINE_PREAMBLE,
+        .name = "Line Preamble",
+        .type = V4L2_CTRL_TYPE_INTEGER,
+        .flags = V4L2_CTRL_FLAG_SLIDER,
+        .min = 0,
+        .max = 10000,
+        .def = 80,
+        .step = 1,
+    },*/
 };
 
-static inline void ov5693_get_frame_length_regs(ov5693_reg *regs,
-				u32 frame_length)
-{
-	regs->addr = OV5693_FRAME_LENGTH_ADDR_MSB;
-	regs->val = (frame_length >> 8) & 0xff;
-	(regs + 1)->addr = OV5693_FRAME_LENGTH_ADDR_LSB;
-	(regs + 1)->val = (frame_length) & 0xff;
-}
-
-
-static inline void ov5693_get_coarse_time_regs(ov5693_reg *regs,
-				u32 coarse_time)
-{
-	regs->addr = OV5693_COARSE_TIME_ADDR_1;
-	regs->val = (coarse_time >> 12) & 0xff;
-	(regs + 1)->addr = OV5693_COARSE_TIME_ADDR_2;
-	(regs + 1)->val = (coarse_time >> 4) & 0xff;
-	(regs + 2)->addr = OV5693_COARSE_TIME_ADDR_3;
-	(regs + 2)->val = (coarse_time & 0xf) << 4;
-}
-
-static inline void ov5693_get_coarse_time_short_regs(ov5693_reg *regs,
-				u32 coarse_time)
-{
-	regs->addr = OV5693_COARSE_TIME_SHORT_ADDR_1;
-	regs->val = (coarse_time >> 12) & 0xff;
-	(regs + 1)->addr = OV5693_COARSE_TIME_SHORT_ADDR_2;
-	(regs + 1)->val = (coarse_time >> 4) & 0xff;
-	(regs + 2)->addr = OV5693_COARSE_TIME_SHORT_ADDR_3;
-	(regs + 2)->val = (coarse_time & 0xf) << 4;
-}
-
-static inline void ov5693_get_gain_regs(ov5693_reg *regs,
-				u16 gain)
-{
-	regs->addr = OV5693_GAIN_ADDR_MSB;
-	regs->val = (gain >> 8) & 0xff;
-
-	(regs + 1)->addr = OV5693_GAIN_ADDR_LSB;
-	(regs + 1)->val = (gain) & 0xff;
-}
 
 static int test_mode;
 module_param(test_mode, int, 0644);
 
-static inline int ov5693_read_reg(struct camera_common_data *s_data,
-				u16 addr, u8 *val)
+static inline int ar0521_read_reg(struct camera_common_data *s_data,
+                                  u16 addr, u16 *val)
 {
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
-	int err = 0;
-	u32 reg_val = 0;
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
+    int err = 0;
+    u32 reg_val = 0;
 
-	err = regmap_read(priv->regmap, addr, &reg_val);
-	*val = reg_val & 0xFF;
+    err = regmap_read(priv->regmap, addr, &reg_val);
+    *val = reg_val & 0xFFFF;
 
-	return err;
+    return err;
 }
 
-static int ov5693_write_reg(struct camera_common_data *s_data, u16 addr, u8 val)
+static int ar0521_write_reg(struct camera_common_data *s_data, u16 addr, u16 val)
 {
-	int err;
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
+    int err;
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
 
-	err = regmap_write(priv->regmap, addr, val);
-	if (err)
-		pr_err("%s:i2c write failed, %x = %x\n",
-			__func__, addr, val);
+    err = regmap_write(priv->regmap, addr, val);
+    if (err)
+        pr_err("%s:i2c write failed, %x = %x\n",
+               __func__, addr, val);
 
-	return err;
+    return err;
 }
 
-static int ov5693_write_table(struct ov5693 *priv,
-			      const ov5693_reg table[])
+static int ar0521_write_table(struct ar0521 *priv, const struct reg_16 table[],
+                              u16 wait_ms_addr, u16 end_addr)
 {
-	return regmap_util_write_table_8(priv->regmap,
-					 table,
-					 NULL, 0,
-					 OV5693_TABLE_WAIT_MS,
-					 OV5693_TABLE_END);
+    int err = 0;
+    const struct reg_16 *next;
+
+    for (next = table;; next++) {
+
+        if (next->addr == end_addr)
+            break;
+
+        if (next->addr == wait_ms_addr) {
+            msleep_range(next->val);
+            continue;
+        }
+
+        err = regmap_write(priv->regmap, next->addr, next->val);
+        if (err) {
+            pr_err("%s:i2c write failed, %x = %x\n",
+                   __func__, next->addr, next->val);
+            return err;
+        }
+    }
+
+    return 0;
 }
 
-static void ov5693_gpio_set(struct ov5693 *priv,
-			    unsigned int gpio, int val)
+static void ar0521_gpio_set(struct ar0521 *priv,
+                            unsigned int gpio, int val)
 {
-	if (priv->pdata && priv->pdata->use_cam_gpio)
-		cam_gpio_ctrl(&priv->i2c_client->dev, gpio, val, 1);
-	else {
-		if (gpio_cansleep(gpio))
-			gpio_set_value_cansleep(gpio, val);
-		else
-			gpio_set_value(gpio, val);
-	}
+    if (priv->pdata && priv->pdata->use_cam_gpio)
+        cam_gpio_ctrl(&priv->i2c_client->dev, gpio, val, 1);
+    else {
+        if (gpio_cansleep(gpio))
+            gpio_set_value_cansleep(gpio, val);
+        else
+            gpio_set_value(gpio, val);
+    }
 }
 
-static int ov5693_power_on(struct camera_common_data *s_data)
+static int ar0521_power_on(struct camera_common_data *s_data)
 {
-	int err = 0;
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
-	struct camera_common_power_rail *pw = &priv->power;
-	u32 frame_time;
+    int err = 0;
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
+    struct camera_common_power_rail *pw = &priv->power;
+    u32 frame_time;
 
-	dev_dbg(&priv->i2c_client->dev, "%s: power on\n", __func__);
+    dev_dbg(&priv->i2c_client->dev, "%s: power on\n", __func__);
 
-	if (priv->pdata && priv->pdata->power_on) {
-		err = priv->pdata->power_on(pw);
-		if (err)
-			pr_err("%s failed.\n", __func__);
-		else
-			pw->state = SWITCH_ON;
-		return err;
-	}
+    if (priv->pdata && priv->pdata->power_on) {
+        err = priv->pdata->power_on(pw);
+        if (err)
+            pr_err("%s failed.\n", __func__);
+        else
+            pw->state = SWITCH_ON;
+        return err;
+    }
 
-	/* sleeps calls in the sequence below are for internal device
-	 * signal propagation as specified by sensor vendor */
+    /* Power up sequence as follow refers to chapter "POWER RESET AND STANDBY TIMING &
+     * Power-Up Sequences" in <AR0521-D.PDF> */
 
-	if (pw->avdd)
-		err = regulator_enable(pw->avdd);
-	if (err)
-		goto ov5693_avdd_fail;
+    if (pw->reset_gpio)
+        ar0521_gpio_set(priv, pw->reset_gpio, 0);
 
-	if (pw->iovdd)
-		err = regulator_enable(pw->iovdd);
-	if (err)
-		goto ov5693_iovdd_fail;
+    // enable 1.8v iovdd
+    if (pw->iovdd)
+        err = regulator_enable(pw->iovdd);
+    if (err)
+        goto ar0521_iovdd_fail;
 
-	usleep_range(1, 2);
-	if (pw->pwdn_gpio)
-		ov5693_gpio_set(priv, pw->pwdn_gpio, 1);
+    if (pw->avdd)
+        err = regulator_enable(pw->avdd);
+    if (err)
+        goto ar0521_avdd_fail;
 
-	/*
-	 * datasheet 2.9: reset requires ~2ms settling time
-	 * a power on reset is generated after core power becomes stable
-	 */
-	usleep_range(2000, 2010);
+    /*
+     * datasheet "Power Up Sequence": After 1-500 ms, set RESET_N HIGH.
+     */
+    usleep_range(200, 210);
 
-	if (pw->reset_gpio)
-		ov5693_gpio_set(priv, pw->reset_gpio, 1);
+    if (pw->reset_gpio)
+        ar0521_gpio_set(priv, pw->reset_gpio, 1);
 
-	/* datasheet fig 2-9: t3 */
-	usleep_range(2000, 2010);
+    pw->state = SWITCH_ON;
 
-	pw->state = SWITCH_ON;
+    return 0;
 
-	/* need SW standby LP11 for mipical.
-	 * sensor default is LP00, this will transition to LP11 */
-	ov5693_write_reg(s_data, 0x0100, 0x1);
-	ov5693_write_reg(s_data, 0x0100, 0x0);
-	/*
-	 * Sleep to allow SW reset to settle into LP11. After writing
-	 * 0x1, according to the datasheet, it could take the remainder
-	 * of the frame time to settle.  Streaming too soon after this
-	 * may have unintended consequences.
-	 */
-	frame_time = OV5693_DEFAULT_FRAME_LENGTH *
-			OV5693_DEFAULT_LINE_LENGTH / OV5693_DEFAULT_PIXEL_CLOCK;
-	usleep_range(frame_time, frame_time + 1000);
+ar0521_iovdd_fail:
+    regulator_disable(pw->avdd);
 
-	return 0;
-
-ov5693_iovdd_fail:
-	regulator_disable(pw->avdd);
-
-ov5693_avdd_fail:
-	pr_err("%s failed.\n", __func__);
-	return -ENODEV;
+ar0521_avdd_fail:
+    pr_err("%s failed.\n", __func__);
+    return -ENODEV;
 }
 
-static int ov5693_power_off(struct camera_common_data *s_data)
+static int ar0521_power_off(struct camera_common_data *s_data)
 {
-	int err = 0;
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
-	struct camera_common_power_rail *pw = &priv->power;
+    int err = 0;
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
+    struct camera_common_power_rail *pw = &priv->power;
 
-	dev_dbg(&priv->i2c_client->dev, "%s: power off\n", __func__);
+    dev_dbg(&priv->i2c_client->dev, "%s: power off\n", __func__);
 
-	if (priv->pdata && priv->pdata->power_off) {
-		err = priv->pdata->power_off(pw);
-		if (!err) {
-			goto power_off_done;
-		} else {
-			pr_err("%s failed.\n", __func__);
-			return err;
-		}
-	}
+    /* Power down sequence as follow refers to chapter "POWER RESET AND STANDBY TIMING &
+     * Power-Down Sequences" in <AR0521-D.PDF> */
 
-	/* sleeps calls in the sequence below are for internal device
-	 * signal propagation as specified by sensor vendor */
+    if (priv->pdata && priv->pdata->power_off) {
+        err = priv->pdata->power_off(pw);
+        if (!err) {
+            goto power_off_done;
+        } else {
+            pr_err("%s failed.\n", __func__);
+            return err;
+        }
+    }
 
-	usleep_range(21, 25);
-	if (pw->pwdn_gpio)
-		ov5693_gpio_set(priv, pw->pwdn_gpio, 0);
-	usleep_range(1, 2);
-	if (pw->reset_gpio)
-		ov5693_gpio_set(priv, pw->reset_gpio, 0);
+    usleep_range(1, 2);
+    if (pw->reset_gpio)
+        ar0521_gpio_set(priv, pw->reset_gpio, 0);
 
-	/* datasheet 2.9: reset requires ~2ms settling time*/
-	usleep_range(2000, 2010);
-
-	if (pw->iovdd)
-		regulator_disable(pw->iovdd);
-	if (pw->avdd)
-		regulator_disable(pw->avdd);
+    if (pw->iovdd)
+        regulator_disable(pw->iovdd);
+    if (pw->avdd)
+        regulator_disable(pw->avdd);
 
 power_off_done:
-	pw->state = SWITCH_OFF;
-	return 0;
+    pw->state = SWITCH_OFF;
+    return 0;
 }
 
-static int ov5693_power_put(struct ov5693 *priv)
+static int ar0521_power_put(struct ar0521 *priv)
 {
-	struct camera_common_power_rail *pw = &priv->power;
+    struct camera_common_power_rail *pw = &priv->power;
 
-	if (unlikely(!pw))
-		return -EFAULT;
+    if (unlikely(!pw))
+        return -EFAULT;
 
-	if (likely(pw->avdd))
-		regulator_put(pw->avdd);
+    if (likely(pw->avdd))
+        regulator_put(pw->avdd);
 
-	if (likely(pw->iovdd))
-		regulator_put(pw->iovdd);
+    if (likely(pw->iovdd))
+        regulator_put(pw->iovdd);
 
-	pw->avdd = NULL;
-	pw->iovdd = NULL;
+    pw->avdd = NULL;
+    pw->iovdd = NULL;
 
-	if (priv->pdata && priv->pdata->use_cam_gpio)
-		cam_gpio_deregister(&priv->i2c_client->dev, pw->pwdn_gpio);
-	else {
-		gpio_free(pw->pwdn_gpio);
-		gpio_free(pw->reset_gpio);
-	}
+    if (priv->pdata && priv->pdata->use_cam_gpio)
+        cam_gpio_deregister(&priv->i2c_client->dev, pw->pwdn_gpio);
+    else {
+        gpio_free(pw->pwdn_gpio);
+        gpio_free(pw->reset_gpio);
+    }
 
-	return 0;
+    return 0;
 }
 
-static int ov5693_power_get(struct ov5693 *priv)
+static int ar0521_power_get(struct ar0521 *priv)
 {
-	struct camera_common_power_rail *pw = &priv->power;
-	struct camera_common_pdata *pdata = priv->pdata;
-	const char *mclk_name;
-	const char *parentclk_name;
-	struct clk *parent;
-	int err = 0, ret = 0;
+    struct camera_common_power_rail *pw = &priv->power;
+    struct camera_common_pdata *pdata = priv->pdata;
+    const char *mclk_name;
+    const char *parentclk_name;
+    struct clk *parent;
+    int err = 0, ret = 0;
 
-	if (!pdata) {
-		dev_err(&priv->i2c_client->dev, "pdata missing\n");
-		return -EFAULT;
-	}
+    if (!pdata) {
+        dev_err(&priv->i2c_client->dev, "pdata missing\n");
+        return -EFAULT;
+    }
 
-	mclk_name = pdata->mclk_name ?
-		    pdata->mclk_name : "cam_mclk1";
-	pw->mclk = devm_clk_get(&priv->i2c_client->dev, mclk_name);
-	if (IS_ERR(pw->mclk)) {
-		dev_err(&priv->i2c_client->dev,
-			"unable to get clock %s\n", mclk_name);
-		return PTR_ERR(pw->mclk);
-	}
+    mclk_name = pdata->mclk_name ?
+                pdata->mclk_name : "cam_mclk1";
+    pw->mclk = devm_clk_get(&priv->i2c_client->dev, mclk_name);
+    if (IS_ERR(pw->mclk)) {
+        dev_err(&priv->i2c_client->dev,
+                "unable to get clock %s\n", mclk_name);
+        return PTR_ERR(pw->mclk);
+    }
 
-	parentclk_name = pdata->parentclk_name;
-	if (parentclk_name) {
-		parent = devm_clk_get(&priv->i2c_client->dev, parentclk_name);
-		if (IS_ERR(parent)) {
-			dev_err(&priv->i2c_client->dev,
-				"unable to get parent clcok %s",
-				parentclk_name);
-		} else
-			clk_set_parent(pw->mclk, parent);
-	}
-
-
-	/* analog 2.8v */
-	err |= camera_common_regulator_get(&priv->i2c_client->dev,
-			&pw->avdd, pdata->regulators.avdd);
-	/* IO 1.8v */
-	err |= camera_common_regulator_get(&priv->i2c_client->dev,
-			&pw->iovdd, pdata->regulators.iovdd);
-
-	if (!err) {
-		pw->reset_gpio = pdata->reset_gpio;
-		pw->pwdn_gpio = pdata->pwdn_gpio;
-	}
-
-	if (pdata->use_cam_gpio) {
-		err = cam_gpio_register(&priv->i2c_client->dev, pw->pwdn_gpio);
-		if (err)
-			dev_err(&priv->i2c_client->dev,
-				"%s ERR can't register cam gpio %u!\n",
-				 __func__, pw->pwdn_gpio);
-	} else {
-		ret = gpio_request(pw->pwdn_gpio, "cam_pwdn_gpio");
-		if (ret < 0)
-			dev_dbg(&priv->i2c_client->dev,
-				"%s can't request pwdn_gpio %d\n",
-				__func__, ret);
-		ret = gpio_request(pw->reset_gpio, "cam_reset_gpio");
-		if (ret < 0)
-			dev_dbg(&priv->i2c_client->dev,
-				"%s can't request reset_gpio %d\n",
-				__func__, ret);
-	}
+    parentclk_name = pdata->parentclk_name;
+    if (parentclk_name) {
+        parent = devm_clk_get(&priv->i2c_client->dev, parentclk_name);
+        if (IS_ERR(parent)) {
+            dev_err(&priv->i2c_client->dev,
+                    "unable to get parent clcok %s",
+                    parentclk_name);
+        } else
+            clk_set_parent(pw->mclk, parent);
+    }
 
 
-	pw->state = SWITCH_OFF;
-	return err;
+    /* analog 2.8v */
+    err |= camera_common_regulator_get(&priv->i2c_client->dev,
+                                       &pw->avdd, pdata->regulators.avdd);
+    /* IO 1.8v */
+    err |= camera_common_regulator_get(&priv->i2c_client->dev,
+                                       &pw->iovdd, pdata->regulators.iovdd);
+
+    if (!err) {
+        pw->reset_gpio = pdata->reset_gpio;
+        pw->pwdn_gpio = pdata->pwdn_gpio;
+    }
+
+    if (pdata->use_cam_gpio) {
+        err = cam_gpio_register(&priv->i2c_client->dev, pw->pwdn_gpio);
+        if (err)
+            dev_err(&priv->i2c_client->dev,
+                    "%s ERR can't register cam gpio %u!\n",
+                    __func__, pw->pwdn_gpio);
+    } else {
+        ret = gpio_request(pw->pwdn_gpio, "cam_pwdn_gpio");
+        if (ret < 0)
+            dev_dbg(&priv->i2c_client->dev,
+                    "%s can't request pwdn_gpio %d\n",
+                    __func__, ret);
+        ret = gpio_request(pw->reset_gpio, "cam_reset_gpio");
+        if (ret < 0)
+            dev_dbg(&priv->i2c_client->dev,
+                    "%s can't request reset_gpio %d\n",
+                    __func__, ret);
+    }
+
+
+    pw->state = SWITCH_OFF;
+    return err;
 }
 
-static int ov5693_set_gain(struct ov5693 *priv, s32 val);
-static int ov5693_set_frame_length(struct ov5693 *priv, s32 val);
-static int ov5693_set_coarse_time(struct ov5693 *priv, s32 val);
-static int ov5693_set_coarse_time_short(struct ov5693 *priv, s32 val);
+static int ar0521_set_frame_length(struct ar0521 *priv, s32 val);
+static int ar0521_set_coarse_time(struct ar0521 *priv, s32 val);
 
-static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
+static int ar0521_override_ctrl_config(struct ar0521 *priv)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
+	int numctrls;
+    int err = 0;
+	int err_temp = 0;
+    int i = 0;
 	struct v4l2_control control;
-	int err;
-	u32 frame_time;
-	u8 val;
 
-	dev_dbg(&client->dev, "%s++\n", __func__);
+    dev_dbg(&priv->i2c_client->dev, "step into %s\n", __func__);
+    numctrls = ARRAY_SIZE(ctrl_config_list);
 
-	if (!enable) {
-		ov5693_update_ctrl_range(priv, OV5693_MAX_FRAME_LENGTH);
-
-		err = ov5693_write_table(priv,
-			mode_table[OV5693_MODE_STOP_STREAM]);
-		if (err)
-			return err;
-
-		/*
-		 * Wait for one frame to make sure sensor is set to
-		 * software standby in V-blank
-		 *
-		 * frame_time = frame length rows * Tline
-		 * Tline = line length / pixel clock (in MHz)
-		 */
-		frame_time = priv->frame_length *
-			OV5693_DEFAULT_LINE_LENGTH / OV5693_DEFAULT_PIXEL_CLOCK;
-
-		usleep_range(frame_time, frame_time + 1000);
-		return 0;
+	for (i = 0; i < numctrls; i++){
+		if ((ctrl_config_list[i].flags & V4L2_CTRL_FLAG_SLIDER) == 0)		
+			continue;
+		control.id = ctrl_config_list[i].id;
+		err_temp = v4l2_g_ctrl(&priv->ctrl_handler, &control);
+		err_temp |= __ar0521_s_ctrl(priv, control.id, control.value);
+		if (err_temp){
+			dev_dbg(&priv->i2c_client->dev, "%s: override %s = %d failed\n",
+                    __func__, ctrl_config_list[i].name, control.value);
+		}
+		err |= err_temp;
 	}
 
-	err = ov5693_write_table(priv, mode_table[s_data->mode]);
-	if (err)
-		goto exit;
-
-
-	if (s_data->override_enable) {
-		/*
-		 * write list of override regs for the asking frame length,
-		 * coarse integration time, and gain. Failures to write
-		 * overrides are non-fatal
-		 */
-		control.id = TEGRA_CAMERA_CID_GAIN;
-		err = v4l2_g_ctrl(&priv->ctrl_handler, &control);
-		err |= ov5693_set_gain(priv, control.value);
-		if (err)
-			dev_dbg(&client->dev, "%s: warning gain override failed\n",
-				__func__);
-
-		control.id = TEGRA_CAMERA_CID_FRAME_LENGTH;
-		err = v4l2_g_ctrl(&priv->ctrl_handler, &control);
-		err |= ov5693_set_frame_length(priv, control.value);
-		if (err)
-			dev_dbg(&client->dev,
-				"%s: warning frame length override failed\n",
-				__func__);
-
-		control.id = TEGRA_CAMERA_CID_COARSE_TIME;
-		err = v4l2_g_ctrl(&priv->ctrl_handler, &control);
-		err |= ov5693_set_coarse_time(priv, control.value);
-		if (err)
-			dev_dbg(&client->dev,
-				"%s: warning coarse time override failed\n",
-				__func__);
-
-		control.id = TEGRA_CAMERA_CID_COARSE_TIME_SHORT;
-		err = v4l2_g_ctrl(&priv->ctrl_handler, &control);
-		err |= ov5693_set_coarse_time_short(priv, control.value);
-		if (err)
-			dev_dbg(&client->dev,
-				"%s: warning coarse time short override failed\n",
-				__func__);
-	}
-
-	err = ov5693_write_table(priv, mode_table[OV5693_MODE_START_STREAM]);
-	if (err)
-		goto exit;
-	if (priv->pdata->v_flip) {
-		ov5693_read_reg(priv->s_data, OV5693_TIMING_REG20, &val);
-		ov5693_write_reg(priv->s_data, OV5693_TIMING_REG20,
-				 val | VERTICAL_FLIP);
-	}
-	if (priv->pdata->h_mirror) {
-		ov5693_read_reg(priv->s_data, OV5693_TIMING_REG21, &val);
-		ov5693_write_reg(priv->s_data, OV5693_TIMING_REG21,
-				 val | HORIZONTAL_MIRROR_MASK);
-	} else {
-		ov5693_read_reg(priv->s_data, OV5693_TIMING_REG21, &val);
-		ov5693_write_reg(priv->s_data, OV5693_TIMING_REG21,
-				 val & (~HORIZONTAL_MIRROR_MASK));
-	}
-	if (test_mode)
-		err = ov5693_write_table(priv,
-			mode_table[OV5693_MODE_TEST_PATTERN]);
-
-	dev_dbg(&client->dev, "%s--\n", __func__);
-	return 0;
-exit:
-	dev_dbg(&client->dev, "%s: error setting stream\n", __func__);
 	return err;
 }
 
-static int ov5693_g_input_status(struct v4l2_subdev *sd, u32 *status)
+static int ar0521_update_v4l2_ctrl(struct ar0521 *priv)
+{
+	int err = 0;
+	int err_temp = 0;
+	struct v4l2_control control;
+
+	control.id = GALAXY_CAMERA_CID_LINE_LENGTH;
+	control.value = priv->line_length;
+	err_temp = v4l2_subdev_s_ctrl(priv->subdev, &control);
+	if (err_temp){
+			dev_dbg(&priv->i2c_client->dev, "%s: update line length = %d failed\n",
+                    __func__, priv->line_length);
+	}
+
+	err |= err_temp;
+
+	control.id = TEGRA_CAMERA_CID_FRAME_LENGTH;
+	control.value = priv->frame_length;
+	err_temp = v4l2_subdev_s_ctrl(priv->subdev, &control);
+	if (err_temp){
+			dev_dbg(&priv->i2c_client->dev, "%s: update frame length = %d failed\n",
+                    __func__, priv->frame_length);
+	}
+
+	err |= err_temp;
+
+	return err;
+	
+}
+
+
+static int ar0521_update_dt_parameter(struct ar0521 *priv)
+{
+	struct camera_common_data *s_data = priv->s_data;
+	struct sensor_mode_properties *sensor_modes = s_data->sensor_props.sensor_modes;
+	//struct sensor_signal_properties *signal_properties = &(sensor_modes->signal_properties);
+	struct sensor_image_properties *image_properties = &(sensor_modes->image_properties);
+	//struct sensor_control_properties *control_properties = &(sensor_modes->control_properties);
+
+	image_properties->height = s_data->fmt_height;
+	image_properties->width = s_data->fmt_width;
+	image_properties->line_length = image_properties->width + AR0521_DEFAULT_LINE_BLANK;
+	priv->line_length = image_properties->line_length;
+	priv->frame_length = s_data->fmt_height + AR0521_DEFAULT_FRAME_BLANK;
+	//control_properties->max_framerate = signal_properties->pixel_clock.val / (priv->line_length * priv->frame_length);
+	//ar0521_frmfmt[0].framerates[0] = control_properties->max_framerate;
+	
+	return ar0521_update_v4l2_ctrl(priv);
+}
+
+
+static int ar0521_s_stream(struct v4l2_subdev *sd, int enable)
+{
+    struct i2c_client *client = v4l2_get_subdevdata(sd);
+    struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
+    struct v4l2_control control;
+    int err;
+    u32 frame_time;
+    u16 val;
+
+    dev_dbg(&client->dev, "%s++\n", __func__);
+
+    if (!enable) {
+        //ar0521_update_ctrl_range(priv, AR0521_MAX_FRAME_LENGTH);
+
+        dev_dbg(&client->dev, "%s: stream off\n", __func__);
+
+        err = ar0521_read_reg(s_data, 0x306a, &val);
+        if (err)
+            return err;
+        printk("datapath_status = 0x%x\n", val);
+
+        err = ar0521_write_table(priv, mode_table[AR0521_MODE_STOP_STREAM],
+                                 AR0521_TABLE_WAIT_MS, AR0521_TABLE_END);
+        if (err)
+            return err;
+
+        /*
+         * Wait for one frame to make sure sensor is set to
+         * software standby in V-blank
+         *
+         * frame_time = frame length rows * Tline
+         * Tline = line length / pixel clock (in MHz)
+         */
+        frame_time = priv->frame_length *
+                     AR0521_DEFAULT_LINE_LENGTH / AR0521_DEFAULT_PIXEL_CLOCK;
+
+        usleep_range(frame_time, frame_time + 1000);
+        return 0;
+    }
+
+    err = ar0521_write_table(priv, mode_table[s_data->def_mode],
+                             AR0521_TABLE_WAIT_MS, AR0521_TABLE_END);
+
+    if (err)
+        goto exit;
+
+
+    if (priv->override_en) {
+        err = ar0521_override_ctrl_config(priv);
+        if (err)
+            dev_dbg(&client->dev,
+                    "%s: warning ar0521_override_ctrl_config failed\n",
+                    __func__);
+
+		err = __ar0521_s_ctrl(priv, GALAXY_CAMERA_CID_WIDTH, s_data->fmt_width);
+		err |= __ar0521_s_ctrl(priv, GALAXY_CAMERA_CID_HEIGHT, s_data->fmt_height);
+		if (err)
+            dev_dbg(&client->dev,
+                    "%s: warning width or height failed\n",
+                    __func__);
+    }
+
+    err = ar0521_write_table(priv, mode_table[AR0521_MODE_START_STREAM],
+                             AR0521_TABLE_WAIT_MS, AR0521_TABLE_END);
+    if (err)
+        goto exit;
+#if 0
+    if (priv->pdata->v_flip) {
+        ar0521_read_reg(priv->s_data, AR0521_TIMING_REG20, &val);
+        ar0521_write_reg(priv->s_data, AR0521_TIMING_REG20,
+                         val | VERTICAL_FLIP);
+    }
+    if (priv->pdata->h_mirror) {
+        ar0521_read_reg(priv->s_data, AR0521_TIMING_REG21, &val);
+        ar0521_write_reg(priv->s_data, AR0521_TIMING_REG21,
+                         val | HORIZONTAL_MIRROR_MASK);
+    } else {
+        ar0521_read_reg(priv->s_data, AR0521_TIMING_REG21, &val);
+        ar0521_write_reg(priv->s_data, AR0521_TIMING_REG21,
+                         val & (~HORIZONTAL_MIRROR_MASK));
+    }
+    if (test_mode)
+        err = ar0521_write_table(priv,
+                                 mode_table[AR0521_MODE_TEST_PATTERN]);
+#endif
+
+    dev_dbg(&client->dev, "%s--\n", __func__);
+    return 0;
+exit:
+    dev_dbg(&client->dev, "%s: error setting stream\n", __func__);
+    return err;
+}
+
+static int ar0521_g_input_status(struct v4l2_subdev *sd, u32 *status)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
+	struct ar0521 *priv = (struct ar0521 *)s_data->priv;
 	struct camera_common_power_rail *pw = &priv->power;
 
 	*status = pw->state == SWITCH_ON;
 	return 0;
 }
 
-static struct v4l2_subdev_video_ops ov5693_subdev_video_ops = {
-	.s_stream	= ov5693_s_stream,
-	.g_mbus_config	= camera_common_g_mbus_config,
-	.g_input_status = ov5693_g_input_status,
+static struct v4l2_subdev_video_ops ar0521_subdev_video_ops = {
+    .s_stream   = ar0521_s_stream,
+    .g_mbus_config  = camera_common_g_mbus_config,
+    .g_input_status = ar0521_g_input_status,
 };
 
-static struct v4l2_subdev_core_ops ov5693_subdev_core_ops = {
-	.s_power	= camera_common_s_power,
+static struct v4l2_subdev_core_ops ar0521_subdev_core_ops = {
+    .s_power    = camera_common_s_power,
 };
 
-static int ov5693_get_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
-		struct v4l2_subdev_format *format)
+static int ar0521_get_fmt(struct v4l2_subdev *sd,
+                          struct v4l2_subdev_pad_config *cfg,
+                          struct v4l2_subdev_format *format)
 {
-	return camera_common_g_fmt(sd, &format->format);
+    return camera_common_g_fmt(sd, &format->format);
 }
 
-static int ov5693_set_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
-		struct v4l2_subdev_format *format)
+static int ar0521_set_fmt(struct v4l2_subdev *sd,
+                          struct v4l2_subdev_pad_config *cfg,
+                          struct v4l2_subdev_format *format)
 {
-	int ret;
+    int ret = 0;
+	struct camera_common_data *common_data = container_of(sd, struct camera_common_data, subdev);
+	struct ar0521 *priv = (struct ar0521 *)common_data->priv;
 
-	if (format->which == V4L2_SUBDEV_FORMAT_TRY)
-		ret = camera_common_try_fmt(sd, &format->format);
-	else
-		ret = camera_common_s_fmt(sd, &format->format);
+	printk("ar0521_set_fmt format->format.width = %d, format->format.height = %d\n",
+		format->format.width, format->format.height);
 
+	priv->common_fmt->size.width = format->format.width;
+	priv->common_fmt->size.height = format->format.height;	
+
+    if (format->which == V4L2_SUBDEV_FORMAT_TRY)
+        ret = camera_common_try_fmt(sd, &format->format);
+    else
+        ret = camera_common_s_fmt(sd, &format->format);
+
+	ret |= ar0521_update_dt_parameter(priv);
+
+    return ret;
+}
+
+/*int ar0521_enum_frameintervals(struct v4l2_subdev *sd,
+		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_frame_interval_enum *fie)
+{
+	int ret = 0;
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct camera_common_data *s_data = to_camera_common_data(&client->dev);	
+	struct sensor_mode_properties *sensor_modes = s_data->sensor_props.sensor_modes;
+	struct sensor_control_properties *control_properties = &(sensor_modes->control_properties);
+	
+	ret = camera_common_enum_frameintervals(sd, cfg, fie);
+	fie->interval.denominator = control_properties->max_framerate;
 	return ret;
-}
+}*/
 
-static struct v4l2_subdev_pad_ops ov5693_subdev_pad_ops = {
-	.set_fmt = ov5693_set_fmt,
-	.get_fmt = ov5693_get_fmt,
-	.enum_mbus_code = camera_common_enum_mbus_code,
-	.enum_frame_size	= camera_common_enum_framesizes,
-	.enum_frame_interval	= camera_common_enum_frameintervals,
+
+static struct v4l2_subdev_pad_ops ar0521_subdev_pad_ops = {
+    .set_fmt = ar0521_set_fmt,
+    .get_fmt = ar0521_get_fmt,
+    .enum_mbus_code = camera_common_enum_mbus_code,
+    .enum_frame_size    = camera_common_enum_framesizes,
+    .enum_frame_interval    = camera_common_enum_frameintervals,
 };
 
-static struct v4l2_subdev_ops ov5693_subdev_ops = {
-	.core	= &ov5693_subdev_core_ops,
-	.video	= &ov5693_subdev_video_ops,
-	.pad	= &ov5693_subdev_pad_ops,
+static struct v4l2_subdev_ops ar0521_subdev_ops = {
+    .core   = &ar0521_subdev_core_ops,
+    .video  = &ar0521_subdev_video_ops,
+    .pad    = &ar0521_subdev_pad_ops,
 };
 
-static struct of_device_id ov5693_of_match[] = {
-	{ .compatible = "nvidia,ov5693", },
-	{ },
+static struct of_device_id ar0521_of_match[] = {
+    { .compatible = "daheng,ar0521", },
+    { },
 };
 
-static struct camera_common_sensor_ops ov5693_common_ops = {
-	.power_on = ov5693_power_on,
-	.power_off = ov5693_power_off,
-	.write_reg = ov5693_write_reg,
-	.read_reg = ov5693_read_reg,
+static struct camera_common_sensor_ops ar0521_common_ops = {
+    .power_on = ar0521_power_on,
+    .power_off = ar0521_power_off,
 };
 
-static int ov5693_set_group_hold(struct ov5693 *priv)
+static int ar0521_set_group_hold(struct ar0521 *priv)
 {
 	int err;
 	int gh_prev = switch_ctrl_qmenu[priv->group_hold_prev];
 
 	if (priv->group_hold_en == true && gh_prev == SWITCH_OFF) {
 		/* enter group hold */
-		err = ov5693_write_reg(priv->s_data,
-				       OV5693_GROUP_HOLD_ADDR, 0x01);
+		err = ar0521_write_reg(priv->s_data,
+				       REG_ADDR_GROUP_HOLD, 0x01);
 		if (err)
 			goto fail;
 
@@ -694,13 +872,8 @@ static int ov5693_set_group_hold(struct ov5693 *priv)
 			 "%s: enter group hold\n", __func__);
 	} else if (priv->group_hold_en == false && gh_prev == SWITCH_ON) {
 		/* leave group hold */
-		err = ov5693_write_reg(priv->s_data,
-				       OV5693_GROUP_HOLD_ADDR, 0x11);
-		if (err)
-			goto fail;
-
-		err = ov5693_write_reg(priv->s_data,
-				       OV5693_GROUP_HOLD_ADDR, 0x61);
+		err = ar0521_write_reg(priv->s_data,
+				       REG_ADDR_GROUP_HOLD, 0x00);
 		if (err)
 			goto fail;
 
@@ -718,825 +891,530 @@ fail:
 	return err;
 }
 
-static u16 ov5693_to_real_gain(u32 rep, int shift)
+static int ar0521_set_gain(struct ar0521 *priv, s32 val)
 {
-	u16 gain;
-	int gain_int;
-	int gain_dec;
-	int min_int = (1 << shift);
+    int err = 0;
+	
+	if (!priv->group_hold_prev)
+		ar0521_set_group_hold(priv);
+		
+    err = regmap_write(priv->regmap, REG_ADDR_GAIN, val + AR0521_MIN_GAIN);
+    if (err) {
+        pr_err("%s: GAIN control error\n", __func__);
+        return err;
+    }
 
-	if (rep < OV5693_MIN_GAIN)
-		rep = OV5693_MIN_GAIN;
-	else if (rep > OV5693_MAX_GAIN)
-		rep = OV5693_MAX_GAIN;
-
-	gain_int = (int)(rep >> shift);
-	gain_dec = (int)(rep & ~(0xffff << shift));
-
-	/* derived from formulat gain = (x * 16 + 0.5) */
-	gain = ((gain_int * min_int + gain_dec) * 32 + min_int) / (2 * min_int);
-
-	return gain;
+    return 0;
 }
 
-static int ov5693_set_gain(struct ov5693 *priv, s32 val)
+static int ar0521_set_line_length(struct ar0521 *priv, s32 val)
 {
-	ov5693_reg reg_list[2];
-	int err;
-	u16 gain;
-	int i;
+    int err;
+    int i;
 
-	if (!priv->group_hold_prev)
-		ov5693_set_group_hold(priv);
+    if (!priv->group_hold_prev)
+        ar0521_set_group_hold(priv);
+	
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: val: %d\n", __func__, val);
 
-	/* translate value */
-	gain = ov5693_to_real_gain((u32)val, OV5693_GAIN_SHIFT);
+    err = regmap_write(priv->regmap, REG_ADDR_LINE_LENGTH, val);
+	
+    if (err)
+    	goto fail;
 
-	ov5693_get_gain_regs(reg_list, gain);
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: gain %04x val: %04x\n", __func__, val, gain);
-
-	for (i = 0; i < 2; i++) {
-		err = ov5693_write_reg(priv->s_data, reg_list[i].addr,
-			 reg_list[i].val);
-		if (err)
-			goto fail;
-	}
-
-	return 0;
+    priv->line_length = val;
+	
+    return 0;
 
 fail:
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: GAIN control error\n", __func__);
-	return err;
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: LINE_LENGTH control error\n", __func__);
+    return err;
 }
 
-static void ov5693_update_ctrl_range(struct ov5693 *priv, s32 frame_length)
+
+static int ar0521_set_frame_length(struct ar0521 *priv, s32 val)
 {
-	struct v4l2_ctrl *ctrl = NULL;
-	int ctrl_ids[2] = {TEGRA_CAMERA_CID_COARSE_TIME,
-			TEGRA_CAMERA_CID_COARSE_TIME_SHORT};
-	s32 max, min, def;
-	int i, j;
+    int err;
 
-	for (i = 0; i < ARRAY_SIZE(ctrl_ids); i++) {
-		for (j = 0; j < priv->numctrls; j++) {
-			if (priv->ctrls[j]->id == ctrl_ids[i]) {
-				ctrl = priv->ctrls[j];
-				break;
-			}
-		}
+    if (!priv->group_hold_prev)
+        ar0521_set_group_hold(priv);
+	
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: val: %d\n", __func__, val);
 
-		if (j == priv->numctrls) {
-			dev_err(&priv->i2c_client->dev,
-				"could not find ctrl %x\n",
-				ctrl_ids[i]);
-			continue;
-		}
+    err = regmap_write(priv->regmap, REG_ADDR_FRAME_LENGTH, val);
+	
+    if (err)
+    	goto fail;
 
-		max = frame_length - OV5693_MAX_COARSE_DIFF;
-		/* clamp the value in case above is negative */
-		max = clamp_val(max, OV5693_MIN_EXPOSURE_COARSE,
-			OV5693_MAX_EXPOSURE_COARSE);
-		min = OV5693_MIN_EXPOSURE_COARSE;
-		def = clamp_val(OV5693_DEFAULT_EXPOSURE_COARSE, min, max);
-		if (__v4l2_ctrl_modify_range(ctrl, min, max, 1, def))
-			dev_err(&priv->i2c_client->dev,
-				"ctrl %x: range update failed\n",
-				ctrl_ids[i]);
-	}
-
-}
-
-static int ov5693_set_frame_length(struct ov5693 *priv, s32 val)
-{
-	ov5693_reg reg_list[2];
-	int err;
-	u32 frame_length;
-	int i;
-
-	if (!priv->group_hold_prev)
-		ov5693_set_group_hold(priv);
-
-	frame_length = (u32)val;
-
-	ov5693_get_frame_length_regs(reg_list, frame_length);
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: val: %d\n", __func__, frame_length);
-
-	for (i = 0; i < 2; i++) {
-		err = ov5693_write_reg(priv->s_data, reg_list[i].addr,
-			 reg_list[i].val);
-		if (err)
-			goto fail;
-	}
-
-	priv->frame_length = frame_length;
-
-	ov5693_update_ctrl_range(priv, val);
-	return 0;
+    priv->frame_length = val;
+	
+    return 0;
 
 fail:
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: FRAME_LENGTH control error\n", __func__);
-	return err;
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: FRAME_LENGTH control error\n", __func__);
+    return err;
 }
 
-static int ov5693_set_coarse_time(struct ov5693 *priv, s32 val)
+/*static int ar0521_set_coarse_time(struct ar0521 *priv, s32 val)
 {
-	ov5693_reg reg_list[3];
-	int err;
-	u32 coarse_time;
-	int i;
+    ov5693_reg reg_list[3];
+    int err;
+    u32 coarse_time;
+    int i;
 
-	if (!priv->group_hold_prev)
-		ov5693_set_group_hold(priv);
+    if (!priv->group_hold_prev)
+        ar0521_set_group_hold(priv);
 
-	coarse_time = (u32)val;
+    coarse_time = (u32)val;
 
-	ov5693_get_coarse_time_regs(reg_list, coarse_time);
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: val: %d\n", __func__, coarse_time);
+    ov5693_get_coarse_time_regs(reg_list, coarse_time);
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: val: %d\n", __func__, coarse_time);
 
-	for (i = 0; i < 3; i++) {
-		err = ov5693_write_reg(priv->s_data, reg_list[i].addr,
-			 reg_list[i].val);
-		if (err)
-			goto fail;
-	}
+    for (i = 0; i < 3; i++) {
+        err = ov5693_write_reg(priv->s_data, reg_list[i].addr,
+             reg_list[i].val);
+        if (err)
+            goto fail;
+    }
 
-	return 0;
+    return 0;
 
 fail:
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: COARSE_TIME control error\n", __func__);
-	return err;
+    dev_dbg(&priv->i2c_client->dev,
+         "%s: COARSE_TIME control error\n", __func__);
+    return err;
+}*/
+
+static int ar0521_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
+{
+    struct ar0521 *priv =
+        container_of(ctrl->handler, struct ar0521, ctrl_handler);
+    int err = 0;
+
+    if (priv->power.state == SWITCH_OFF)
+        return 0;
+
+    switch (ctrl->id) {
+    case GALAXY_CAMERA_CID_CHIP_VERSION:
+        err = regmap_read(priv->regmap, REG_ADDR_CHIP_VERSION, &ctrl->val);
+        if (err)
+            return err;
+        break;
+    case GALAXY_CAMERA_CID_CHIP_TEMPER:
+        err = ar0521_get_temper(priv, &ctrl->val);
+        if (err)
+            return err;
+        break;
+    default:
+        pr_err("%s: unknown ctrl id.\n", __func__);
+        return -EINVAL;
+    }
+
+    return err;
 }
 
-static int ov5693_set_coarse_time_short(struct ov5693 *priv, s32 val)
+static int __ar0521_s_ctrl(struct ar0521 *priv, u32 id, s32 val)
 {
-	ov5693_reg reg_list[3];
-	int err;
-	struct v4l2_control hdr_control;
-	int hdr_en;
-	u32 coarse_time_short;
-	int i;
-
-	if (!priv->group_hold_prev)
-		ov5693_set_group_hold(priv);
-
-	/* check hdr enable ctrl */
-	hdr_control.id = TEGRA_CAMERA_CID_HDR_EN;
-
-	err = camera_common_g_ctrl(priv->s_data, &hdr_control);
-	if (err < 0) {
-		dev_err(&priv->i2c_client->dev,
-			"could not find device ctrl.\n");
-		return err;
-	}
-
-	hdr_en = switch_ctrl_qmenu[hdr_control.value];
-	if (hdr_en == SWITCH_OFF)
-		return 0;
-
-	coarse_time_short = (u32)val;
-
-	ov5693_get_coarse_time_short_regs(reg_list, coarse_time_short);
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: val: %d\n", __func__, coarse_time_short);
-
-	for (i = 0; i < 3; i++) {
-		err = ov5693_write_reg(priv->s_data, reg_list[i].addr,
-			 reg_list[i].val);
-		if (err)
-			goto fail;
-	}
-
-	return 0;
-
-fail:
-	dev_dbg(&priv->i2c_client->dev,
-		 "%s: COARSE_TIME_SHORT control error\n", __func__);
-	return err;
-}
-
-static int ov5693_eeprom_device_release(struct ov5693 *priv)
-{
-	int i;
-
-	for (i = 0; i < OV5693_EEPROM_NUM_BLOCKS; i++) {
-		if (priv->eeprom[i].i2c_client != NULL) {
-			i2c_unregister_device(priv->eeprom[i].i2c_client);
-			priv->eeprom[i].i2c_client = NULL;
-		}
-	}
-
-	return 0;
-}
-
-static int ov5693_eeprom_device_init(struct ov5693 *priv)
-{
-	char *dev_name = "eeprom_ov5693";
-	static struct regmap_config eeprom_regmap_config = {
-		.reg_bits = 8,
-		.val_bits = 8,
-	};
-	int i;
-	int err;
-
-	if (!priv->pdata->has_eeprom)
-		return -EINVAL;
-
-	for (i = 0; i < OV5693_EEPROM_NUM_BLOCKS; i++) {
-		priv->eeprom[i].adap = i2c_get_adapter(
-				priv->i2c_client->adapter->nr);
-		memset(&priv->eeprom[i].brd, 0, sizeof(priv->eeprom[i].brd));
-		strncpy(priv->eeprom[i].brd.type, dev_name,
-				sizeof(priv->eeprom[i].brd.type));
-		priv->eeprom[i].brd.addr = OV5693_EEPROM_ADDRESS + i;
-		priv->eeprom[i].i2c_client = i2c_new_device(
-				priv->eeprom[i].adap, &priv->eeprom[i].brd);
-
-		priv->eeprom[i].regmap = devm_regmap_init_i2c(
-			priv->eeprom[i].i2c_client, &eeprom_regmap_config);
-		if (IS_ERR(priv->eeprom[i].regmap)) {
-			err = PTR_ERR(priv->eeprom[i].regmap);
-			ov5693_eeprom_device_release(priv);
-			return err;
-		}
-	}
-
-	return 0;
-}
-
-static int ov5693_read_eeprom(struct ov5693 *priv,
-				struct v4l2_ctrl *ctrl)
-{
-	int err, i;
-
-	for (i = 0; i < OV5693_EEPROM_NUM_BLOCKS; i++) {
-		err = regmap_bulk_read(priv->eeprom[i].regmap, 0,
-			&priv->eeprom_buf[i * OV5693_EEPROM_BLOCK_SIZE],
-			OV5693_EEPROM_BLOCK_SIZE);
-		if (err)
-			return err;
-	}
-
-	for (i = 0; i < OV5693_EEPROM_SIZE; i++)
-		sprintf(&ctrl->p_new.p_char[i*2], "%02x",
-			priv->eeprom_buf[i]);
-	return 0;
-}
-
-static int ov5693_write_eeprom(struct ov5693 *priv,
-				char *string)
-{
-	int err;
-	int i;
-	u8 curr[3];
-	unsigned long data;
-
-	for (i = 0; i < OV5693_EEPROM_SIZE; i++) {
-		curr[0] = string[i*2];
-		curr[1] = string[i*2+1];
-		curr[2] = '\0';
-
-		err = kstrtol(curr, 16, &data);
-		if (err) {
-			dev_err(&priv->i2c_client->dev,
-				"invalid eeprom string\n");
-			return -EINVAL;
-		}
-
-		priv->eeprom_buf[i] = (u8)data;
-		err = regmap_write(priv->eeprom[i >> 8].regmap,
-				   i & 0xFF, (u8)data);
-		if (err)
-			return err;
-		msleep(20);
-	}
-	return 0;
-}
-
-static int ov5693_read_otp_bank(struct ov5693 *priv,
-				u8 *buf, int bank, u16 addr, int size)
-{
-	int err;
-
-	/* sleeps calls in the sequence below are for internal device
-	 * signal propagation as specified by sensor vendor */
-
-	usleep_range(10000, 11000);
-	err = ov5693_write_table(priv, mode_table[OV5693_MODE_START_STREAM]);
-	if (err)
-		return err;
-
-	err = ov5693_write_reg(priv->s_data, OV5693_OTP_BANK_SELECT_ADDR,
-			       0xC0 | bank);
-	if (err)
-		return err;
-
-	err = ov5693_write_reg(priv->s_data, OV5693_OTP_LOAD_CTRL_ADDR, 0x01);
-	if (err)
-		return err;
-
-	usleep_range(10000, 11000);
-	err = regmap_bulk_read(priv->regmap, addr, buf, size);
-	if (err)
-		return err;
-
-	err = ov5693_write_table(priv,
-			mode_table[OV5693_MODE_STOP_STREAM]);
-	if (err)
-		return err;
-
-	return 0;
-}
-
-static int ov5693_otp_setup(struct ov5693 *priv)
-{
-	int err;
-	int i;
-	struct v4l2_ctrl *ctrl;
-	u8 otp_buf[OV5693_OTP_SIZE];
-
-	err = camera_common_s_power(priv->subdev, true);
-	if (err)
-		return -ENODEV;
-
-	for (i = 0; i < OV5693_OTP_NUM_BANKS; i++) {
-		err = ov5693_read_otp_bank(priv,
-					&otp_buf[i * OV5693_OTP_BANK_SIZE],
-					i,
-					OV5693_OTP_BANK_START_ADDR,
-					OV5693_OTP_BANK_SIZE);
-		if (err) {
-			dev_err(&priv->i2c_client->dev,
-				"could not read otp bank\n");
-			goto ret;
-		}
-	}
-
-	ctrl = v4l2_ctrl_find(&priv->ctrl_handler, TEGRA_CAMERA_CID_OTP_DATA);
-	if (!ctrl) {
-		dev_err(&priv->i2c_client->dev,
-			"could not find device ctrl.\n");
-		err = -EINVAL;
-		goto ret;
-	}
-
-	for (i = 0; i < OV5693_OTP_SIZE; i++)
-		sprintf(&ctrl->p_new.p_char[i*2], "%02x",
-			otp_buf[i]);
-	ctrl->p_cur.p_char = ctrl->p_new.p_char;
-
-ret:
-	camera_common_s_power(priv->subdev, false);
-
-	return err;
-}
-
-static int ov5693_fuse_id_setup(struct ov5693 *priv)
-{
-	int err;
-	int i;
-	struct v4l2_ctrl *ctrl;
-	u8 fuse_id[OV5693_FUSE_ID_SIZE];
-
-	err = camera_common_s_power(priv->subdev, true);
-	if (err)
-		return -ENODEV;
-
-	err = ov5693_read_otp_bank(priv,
-				&fuse_id[0],
-				OV5693_FUSE_ID_OTP_BANK,
-				OV5693_FUSE_ID_OTP_START_ADDR,
-				OV5693_FUSE_ID_SIZE);
-	if (err) {
-		dev_err(&priv->i2c_client->dev,
-			"could not read otp bank\n");
-		goto ret;
-	}
-
-	ctrl = v4l2_ctrl_find(&priv->ctrl_handler, TEGRA_CAMERA_CID_FUSE_ID);
-	if (!ctrl) {
-		dev_err(&priv->i2c_client->dev,
-			"could not find device ctrl.\n");
-		err = -EINVAL;
-		goto ret;
-	}
-
-	for (i = 0; i < OV5693_FUSE_ID_SIZE; i++)
-		sprintf(&ctrl->p_new.p_char[i*2], "%02x",
-			fuse_id[i]);
-	ctrl->p_cur.p_char = ctrl->p_new.p_char;
-
-ret:
-	camera_common_s_power(priv->subdev, false);
-
-	return err;
-}
-
-static int ov5693_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
-{
-	struct ov5693 *priv =
-		container_of(ctrl->handler, struct ov5693, ctrl_handler);
 	int err = 0;
-
-	if (priv->power.state == SWITCH_OFF)
-		return 0;
-
-	switch (ctrl->id) {
-	case TEGRA_CAMERA_CID_EEPROM_DATA:
-		err = ov5693_read_eeprom(priv, ctrl);
-		if (err)
-			return err;
+	switch (id) {
+    case TEGRA_CAMERA_CID_GAIN:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_GAIN value = %d\n", __func__, val);
+        err = ar0521_set_gain(priv, val);
+        break;
+	case GALAXY_CAMERA_CID_EXPOSURE:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: GALAXY_CAMERA_CID_EXPOSURE value = %d\n", __func__, val);
+		err = regmap_write(priv->regmap, REG_ADDR_EXPOSURE, val);
 		break;
-	default:
-			pr_err("%s: unknown ctrl id.\n", __func__);
-			return -EINVAL;
-	}
-
-	return err;
-}
-
-static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
-{
-	struct ov5693 *priv =
-		container_of(ctrl->handler, struct ov5693, ctrl_handler);
-	int err = 0;
-
-	if (priv->power.state == SWITCH_OFF)
-		return 0;
-
-	switch (ctrl->id) {
-	case TEGRA_CAMERA_CID_GAIN:
-		err = ov5693_set_gain(priv, ctrl->val);
+	case GALAXY_CAMERA_CID_LINE_LENGTH:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_LINE_LENGTH value = %d\n", __func__, val);
+		err = ar0521_set_line_length(priv, val);
 		break;
 	case TEGRA_CAMERA_CID_FRAME_LENGTH:
-		err = ov5693_set_frame_length(priv, ctrl->val);
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_FRAME_LENGTH value = %d\n", __func__, val);
+		err = ar0521_set_frame_length(priv, val);
 		break;
 	case TEGRA_CAMERA_CID_COARSE_TIME:
-		err = ov5693_set_coarse_time(priv, ctrl->val);
-		break;
-	case TEGRA_CAMERA_CID_COARSE_TIME_SHORT:
-		err = ov5693_set_coarse_time_short(priv, ctrl->val);
-		break;
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_COARSE_TIME value = %d\n", __func__, val);
+		err = regmap_write(priv->regmap, REG_ADDR_EXPOSURE_COARSE, val);
+		break;	
 	case TEGRA_CAMERA_CID_GROUP_HOLD:
-		if (switch_ctrl_qmenu[ctrl->val] == SWITCH_ON) {
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_GROUP_HOLD value = %d\n", __func__, val);
+		if (switch_ctrl_qmenu[val] == SWITCH_ON) {
 			priv->group_hold_en = true;
 		} else {
 			priv->group_hold_en = false;
-			err = ov5693_set_group_hold(priv);
+			err = ar0521_set_group_hold(priv);
 		}
 		break;
-	case TEGRA_CAMERA_CID_EEPROM_DATA:
-		if (!ctrl->p_new.p_char[0])
-			break;
-		err = ov5693_write_eeprom(priv, ctrl->p_new.p_char);
-		if (err)
-			return err;
-		break;
+	case GALAXY_CAMERA_CID_WIDTH:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: GALAXY_CAMERA_CID_WIDTH value = %d\n", __func__, val);
+        err = regmap_write(priv->regmap, REG_ADDR_WIDTH, val);
+        break;
+	case GALAXY_CAMERA_CID_HEIGHT:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: GALAXY_CAMERA_CID_HEIGHT value = %d\n", __func__, val);
+        err = regmap_write(priv->regmap, REG_ADDR_HEIGHT, val);
+        break;
+	case GALAXY_CAMERA_CID_OFFSET_X:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: GALAXY_CAMERA_CID_OFFSET_X value = %d\n", __func__, val);
+        err = regmap_write(priv->regmap, REG_ADDR_OFFSET_X, val);
+        break;
+	case GALAXY_CAMERA_CID_OFFSET_Y:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: GALAXY_CAMERA_CID_OFFSET_Y value = %d\n", __func__, val);
+        err = regmap_write(priv->regmap, REG_ADDR_OFFSET_Y, val);
+        break;
+	case GALAXY_CAMERA_CID_OFFSET_X_END:
+        err = regmap_write(priv->regmap, REG_ADDR_OFFSET_X_END, val);
+        break;
+	case GALAXY_CAMERA_CID_OFFSET_Y_END:
+        err = regmap_write(priv->regmap, REG_ADDR_OFFSET_Y_END, val);
+        break;
 	case TEGRA_CAMERA_CID_HDR_EN:
+		dev_dbg(&priv->i2c_client->dev,
+         "%s: TEGRA_CAMERA_CID_HDR_EN is not implemented!\n", __func__);
 		break;
-	default:
-		pr_err("%s: unknown ctrl id.\n", __func__);
-		return -EINVAL;
-	}
+    case GALAXY_CAMERA_CID_FRAME_PREAMBLE:
+        err = regmap_write(priv->regmap, REG_ADDR_FRAME_PREAMBLE, val);
+        break;
+    case GALAXY_CAMERA_CID_LINE_PREAMBLE:
+        err = regmap_write(priv->regmap, REG_ADDR_LINE_PREAMBLE, val);
+        break;
+    default:
+        pr_err("%s: unknown ctrl id.\n", __func__);
+        return -EINVAL;
+    }
 
-	return err;
+    return err;
 }
 
-static int ov5693_ctrls_init(struct ov5693 *priv, bool eeprom_ctrl)
+static int ar0521_s_ctrl(struct v4l2_ctrl *ctrl)
 {
-	struct i2c_client *client = priv->i2c_client;
-	struct camera_common_data *common_data = priv->s_data;
-	struct v4l2_ctrl *ctrl;
-	int numctrls;
-	int err;
-	int i;
+    struct ar0521 *priv =
+        container_of(ctrl->handler, struct ar0521, ctrl_handler);
+	
+    if (priv->power.state == SWITCH_OFF)
+        return 0;
+	
+	return __ar0521_s_ctrl(priv, ctrl->id, ctrl->val);
+}
 
-	dev_dbg(&client->dev, "%s++\n", __func__);
+static int ar0521_ctrls_init(struct ar0521 *priv)
+{
+    struct i2c_client *client = priv->i2c_client;
+    struct camera_common_data *common_data = priv->s_data;
+    struct v4l2_ctrl *ctrl;
+    int numctrls;
+    int err;
+    int i;
 
-	numctrls = ARRAY_SIZE(ctrl_config_list);
-	v4l2_ctrl_handler_init(&priv->ctrl_handler, numctrls);
+    dev_dbg(&client->dev, "%s++\n", __func__);
 
-	for (i = 0; i < numctrls; i++) {
-		/*
-		 * Skip control 'TEGRA_CAMERA_CID_EEPROM_DATA'
-		 * if eeprom inint err
-		 */
-		if (ctrl_config_list[i].id == TEGRA_CAMERA_CID_EEPROM_DATA) {
-			if (!eeprom_ctrl) {
-				common_data->numctrls -= 1;
-				continue;
-			}
-		}
+    numctrls = ARRAY_SIZE(ctrl_config_list);
+    v4l2_ctrl_handler_init(&priv->ctrl_handler, numctrls);
 
-		ctrl = v4l2_ctrl_new_custom(&priv->ctrl_handler,
-			&ctrl_config_list[i], NULL);
-		if (ctrl == NULL) {
-			dev_err(&client->dev, "Failed to init %s ctrl\n",
-				ctrl_config_list[i].name);
-			continue;
-		}
+    for (i = 0; i < numctrls; i++) {
 
-		if (ctrl_config_list[i].type == V4L2_CTRL_TYPE_STRING &&
-			ctrl_config_list[i].flags & V4L2_CTRL_FLAG_READ_ONLY) {
-			ctrl->p_new.p_char = devm_kzalloc(&client->dev,
-				ctrl_config_list[i].max + 1, GFP_KERNEL);
-			if (!ctrl->p_new.p_char)
-				return -ENOMEM;
-		}
-		priv->ctrls[i] = ctrl;
-	}
+        ctrl = v4l2_ctrl_new_custom(&priv->ctrl_handler,
+                                    &ctrl_config_list[i], NULL);
+        if (ctrl == NULL) {
+            dev_err(&client->dev, "Failed to init %s ctrl\n",
+                    ctrl_config_list[i].name);
+            continue;
+        }
 
-	priv->numctrls = numctrls;
-	priv->subdev->ctrl_handler = &priv->ctrl_handler;
-	if (priv->ctrl_handler.error) {
-		dev_err(&client->dev, "Error %d adding controls\n",
-			priv->ctrl_handler.error);
-		err = priv->ctrl_handler.error;
-		goto error;
-	}
+        if (ctrl_config_list[i].type == V4L2_CTRL_TYPE_STRING &&
+                ctrl_config_list[i].flags & V4L2_CTRL_FLAG_READ_ONLY) {
+            ctrl->p_new.p_char = devm_kzalloc(&client->dev,
+                                              ctrl_config_list[i].max + 1, GFP_KERNEL);
+            if (!ctrl->p_new.p_char)
+                return -ENOMEM;
+        }
+        priv->ctrls[i] = ctrl;
+    }
 
-	err = v4l2_ctrl_handler_setup(&priv->ctrl_handler);
-	if (err) {
-		dev_err(&client->dev,
-			"Error %d setting default controls\n", err);
-		goto error;
-	}
+    priv->numctrls = numctrls;
+    priv->subdev->ctrl_handler = &priv->ctrl_handler;
+    if (priv->ctrl_handler.error) {
+        dev_err(&client->dev, "Error %d adding controls\n",
+                priv->ctrl_handler.error);
+        err = priv->ctrl_handler.error;
+        goto error;
+    }
 
-	err = ov5693_otp_setup(priv);
-	if (err) {
-		dev_err(&client->dev,
-			"Error %d reading otp data\n", err);
-		goto error;
-	}
+    err = v4l2_ctrl_handler_setup(&priv->ctrl_handler);
+    if (err) {
+        dev_err(&client->dev,
+                "Error %d setting default controls\n", err);
+        goto error;
+    }
 
-	err = ov5693_fuse_id_setup(priv);
-	if (err) {
-		dev_err(&client->dev,
-			"Error %d reading fuse id data\n", err);
-		goto error;
-	}
-
-	return 0;
+    return 0;
 
 error:
-	v4l2_ctrl_handler_free(&priv->ctrl_handler);
-	return err;
+    v4l2_ctrl_handler_free(&priv->ctrl_handler);
+    return err;
 }
 
-MODULE_DEVICE_TABLE(of, ov5693_of_match);
+MODULE_DEVICE_TABLE(of, ar0521_of_match);
 
-static struct camera_common_pdata *ov5693_parse_dt(struct i2c_client *client)
+static struct camera_common_pdata *ar0521_parse_dt(struct i2c_client *client)
 {
-	struct device_node *node = client->dev.of_node;
-	struct camera_common_pdata *board_priv_pdata;
-	const struct of_device_id *match;
-	int gpio;
-	int err;
-	struct camera_common_pdata *ret = NULL;
+    struct device_node *node = client->dev.of_node;
+    struct camera_common_pdata *board_priv_pdata;
+    const struct of_device_id *match;
+    int gpio;
+    int err;
+    struct camera_common_pdata *ret = NULL;
 
-	if (!node)
-		return NULL;
+    if (!node)
+        return NULL;
 
-	match = of_match_device(ov5693_of_match, &client->dev);
-	if (!match) {
-		dev_err(&client->dev, "Failed to find matching dt id\n");
-		return NULL;
-	}
+    match = of_match_device(ar0521_of_match, &client->dev);
+    if (!match) {
+        dev_err(&client->dev, "Failed to find matching dt id\n");
+        return NULL;
+    }
 
-	board_priv_pdata = devm_kzalloc(&client->dev,
-			   sizeof(*board_priv_pdata), GFP_KERNEL);
-	if (!board_priv_pdata)
-		return NULL;
+    board_priv_pdata = devm_kzalloc(&client->dev,
+                                    sizeof(*board_priv_pdata), GFP_KERNEL);
+    if (!board_priv_pdata)
+        return NULL;
 
-	err = camera_common_parse_clocks(&client->dev, board_priv_pdata);
-	if (err) {
-		dev_err(&client->dev, "Failed to find clocks\n");
-		goto error;
-	}
+    err = camera_common_parse_clocks(&client->dev, board_priv_pdata);
+    if (err) {
+        dev_err(&client->dev, "Failed to find clocks\n");
+        goto error;
+    }
 
-	gpio = of_get_named_gpio(node, "pwdn-gpios", 0);
-	if (gpio < 0) {
-		if (gpio == -EPROBE_DEFER) {
-			ret = ERR_PTR(-EPROBE_DEFER);
-			goto error;
-		}
-		dev_err(&client->dev, "pwdn gpios not in DT\n");
-		goto error;
-	}
-	board_priv_pdata->pwdn_gpio = (unsigned int)gpio;
+    gpio = of_get_named_gpio(node, "pwdn-gpios", 0);
+    if (gpio < 0) {
+        if (gpio == -EPROBE_DEFER) {
+            ret = ERR_PTR(-EPROBE_DEFER);
+            goto error;
+        }
+        dev_err(&client->dev, "pwdn gpios not in DT\n");
+        goto error;
+    }
+    board_priv_pdata->pwdn_gpio = (unsigned int)gpio;
 
-	gpio = of_get_named_gpio(node, "reset-gpios", 0);
-	if (gpio < 0) {
-		/* reset-gpio is not absolutely needed */
-		if (gpio == -EPROBE_DEFER) {
-			ret = ERR_PTR(-EPROBE_DEFER);
-			goto error;
-		}
-		dev_dbg(&client->dev, "reset gpios not in DT\n");
-		gpio = 0;
-	}
-	board_priv_pdata->reset_gpio = (unsigned int)gpio;
+    gpio = of_get_named_gpio(node, "reset-gpios", 0);
+    if (gpio < 0) {
+        /* reset-gpio is not absolutely needed */
+        if (gpio == -EPROBE_DEFER) {
+            ret = ERR_PTR(-EPROBE_DEFER);
+            goto error;
+        }
+        dev_dbg(&client->dev, "reset gpios not in DT\n");
+        gpio = 0;
+    }
+    board_priv_pdata->reset_gpio = (unsigned int)gpio;
 
-	board_priv_pdata->use_cam_gpio =
-		of_property_read_bool(node, "cam,use-cam-gpio");
+    board_priv_pdata->use_cam_gpio =
+        of_property_read_bool(node, "cam,use-cam-gpio");
 
-	err = of_property_read_string(node, "avdd-reg",
-			&board_priv_pdata->regulators.avdd);
-	if (err) {
-		dev_err(&client->dev, "avdd-reg not in DT\n");
-		goto error;
-	}
-	err = of_property_read_string(node, "iovdd-reg",
-			&board_priv_pdata->regulators.iovdd);
-	if (err) {
-		dev_err(&client->dev, "iovdd-reg not in DT\n");
-		goto error;
-	}
+    err = of_property_read_string(node, "avdd-reg",
+                                  &board_priv_pdata->regulators.avdd);
+    if (err) {
+        dev_err(&client->dev, "avdd-reg not in DT\n");
+        goto error;
+    }
+    err = of_property_read_string(node, "iovdd-reg",
+                                  &board_priv_pdata->regulators.iovdd);
+    if (err) {
+        dev_err(&client->dev, "iovdd-reg not in DT\n");
+        goto error;
+    }
 
-	board_priv_pdata->has_eeprom =
-		of_property_read_bool(node, "has-eeprom");
-	board_priv_pdata->v_flip = of_property_read_bool(node, "vertical-flip");
-	board_priv_pdata->h_mirror = of_property_read_bool(node,
-							 "horizontal-mirror");
-	return board_priv_pdata;
+    board_priv_pdata->has_eeprom =
+        of_property_read_bool(node, "has-eeprom");
+    board_priv_pdata->v_flip = of_property_read_bool(node, "vertical-flip");
+    board_priv_pdata->h_mirror = of_property_read_bool(node,
+                                 "horizontal-mirror");
+    return board_priv_pdata;
 
 error:
-	devm_kfree(&client->dev, board_priv_pdata);
-	return ret;
+    devm_kfree(&client->dev, board_priv_pdata);
+    return ret;
 }
 
-static int ov5693_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+static int ar0521_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
+    struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	dev_dbg(&client->dev, "%s:\n", __func__);
-	return 0;
+    dev_dbg(&client->dev, "%s:\n", __func__);
+    return 0;
 }
 
-static const struct v4l2_subdev_internal_ops ov5693_subdev_internal_ops = {
-	.open = ov5693_open,
+static const struct v4l2_subdev_internal_ops ar0521_subdev_internal_ops = {
+    .open = ar0521_open,
 };
 
-static const struct media_entity_operations ov5693_media_ops = {
-	.link_validate = v4l2_subdev_link_validate,
+static const struct media_entity_operations ar0521_media_ops = {
+    .link_validate = v4l2_subdev_link_validate,
 };
 
-static int ov5693_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int ar0521_probe(struct i2c_client *client,
+                        const struct i2c_device_id *id)
 {
-	struct camera_common_data *common_data;
-	struct device_node *node = client->dev.of_node;
-	struct ov5693 *priv;
-	int err;
+    struct camera_common_data *common_data;
+    struct device_node *node = client->dev.of_node;
+    struct ar0521 *priv;
+    int err;
 
-	pr_info("[OV5693]: probing v4l2 sensor.\n");
+    pr_info("[ar0521]: probing v4l2 sensor.\n");
 
-	if (!IS_ENABLED(CONFIG_OF) || !node)
-		return -EINVAL;
+    if (!IS_ENABLED(CONFIG_OF) || !node)
+        return -EINVAL;
 
-	common_data = devm_kzalloc(&client->dev,
-			    sizeof(struct camera_common_data), GFP_KERNEL);
-	if (!common_data)
-		return -ENOMEM;
+    common_data = devm_kzalloc(&client->dev,
+                               sizeof(struct camera_common_data), GFP_KERNEL);
+    if (!common_data)
+        return -ENOMEM;
 
-	priv = devm_kzalloc(&client->dev,
-			    sizeof(struct ov5693) + sizeof(struct v4l2_ctrl *) *
-			    ARRAY_SIZE(ctrl_config_list),
-			    GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
+    priv = devm_kzalloc(&client->dev,
+                        sizeof(struct ar0521) + sizeof(struct v4l2_ctrl *) *
+                        ARRAY_SIZE(ctrl_config_list),
+                        GFP_KERNEL);
+    if (!priv)
+        return -ENOMEM;
 
-	priv->regmap = devm_regmap_init_i2c(client, &ov5693_regmap_config);
-	if (IS_ERR(priv->regmap)) {
-		dev_err(&client->dev,
-			"regmap init failed: %ld\n", PTR_ERR(priv->regmap));
-		return -ENODEV;
-	}
+    priv->regmap = devm_regmap_init_i2c(client, &ar0521_regmap_config);
+    if (IS_ERR(priv->regmap)) {
+        dev_err(&client->dev,
+                "regmap init failed: %ld\n", PTR_ERR(priv->regmap));
+        return -ENODEV;
+    }
 
-	priv->pdata = ov5693_parse_dt(client);
-	if (PTR_ERR(priv->pdata) == -EPROBE_DEFER)
-		return -EPROBE_DEFER;
-	if (!priv->pdata) {
-		dev_err(&client->dev, "unable to get platform data\n");
-		return -EFAULT;
-	}
+    priv->pdata = ar0521_parse_dt(client);
+    if (PTR_ERR(priv->pdata) == -EPROBE_DEFER)
+        return -EPROBE_DEFER;
+    if (!priv->pdata) {
+        dev_err(&client->dev, "unable to get platform data\n");
+        return -EFAULT;
+    }
 
-	common_data->ops		= &ov5693_common_ops;
-	common_data->ctrl_handler	= &priv->ctrl_handler;
-	common_data->dev		= &client->dev;
-	common_data->frmfmt		= ov5693_frmfmt;
-	common_data->colorfmt		= camera_common_find_datafmt(
-					  OV5693_DEFAULT_DATAFMT);
-	common_data->power		= &priv->power;
-	common_data->ctrls		= priv->ctrls;
-	common_data->priv		= (void *)priv;
-	common_data->numctrls		= ARRAY_SIZE(ctrl_config_list);
-	common_data->numfmts		= ARRAY_SIZE(ov5693_frmfmt);
-	common_data->def_mode		= OV5693_DEFAULT_MODE;
-	common_data->def_width		= OV5693_DEFAULT_WIDTH;
-	common_data->def_height		= OV5693_DEFAULT_HEIGHT;
-	common_data->fmt_width		= common_data->def_width;
-	common_data->fmt_height		= common_data->def_height;
-	common_data->def_clk_freq	= OV5693_DEFAULT_CLK_FREQ;
+    common_data->ops        = &ar0521_common_ops;
+    common_data->ctrl_handler   = &priv->ctrl_handler;
+    common_data->dev        = &client->dev;
+	common_data->frmfmt		= ar0521_frmfmt;
+    common_data->colorfmt       = camera_common_find_datafmt(
+                                      AR0521_DEFAULT_DATAFMT);
+    common_data->power      = &priv->power;
+    common_data->ctrls      = priv->ctrls;
+    common_data->priv       = (void *)priv;
+    common_data->numctrls       = ARRAY_SIZE(ctrl_config_list);
+    common_data->numfmts        = ARRAY_SIZE(ar0521_frmfmt);
+    common_data->def_mode       = AR0521_DEFAULT_MODE;
+    common_data->def_width      = AR0521_DEFAULT_WIDTH;
+    common_data->def_height     = AR0521_DEFAULT_HEIGHT;
+    common_data->fmt_width      = common_data->def_width;
+    common_data->fmt_height     = common_data->def_height;
+    common_data->def_clk_freq   = AR0521_DEFAULT_CLK_FREQ;
 
-	priv->i2c_client = client;
-	priv->s_data			= common_data;
-	priv->subdev			= &common_data->subdev;
-	priv->subdev->dev		= &client->dev;
-	priv->s_data->dev		= &client->dev;
+    priv->i2c_client = client;
+    priv->s_data            = common_data;
+    priv->subdev            = &common_data->subdev;
+    priv->subdev->dev       = &client->dev;
+    priv->s_data->dev       = &client->dev;
+    priv->override_en       = true;
+	priv->frame_length      = AR0521_DEFAULT_FRAME_LENGTH;
+	priv->line_length       = AR0521_DEFAULT_LINE_LENGTH;
+	priv->common_fmt        = &ar0521_frmfmt[0];
 
-	err = ov5693_power_get(priv);
-	if (err)
-		return err;
+    err = ar0521_power_get(priv);
+    if (err)
+        return err;
 
-	err = camera_common_initialize(common_data, "ov5693");
-	if (err) {
-		dev_err(&client->dev, "Failed to initialize ov5693.\n");
-		return err;
-	}
+    err = camera_common_initialize(common_data, "ar0521");
+    if (err) {
+        dev_err(&client->dev, "Failed to initialize ar0521.\n");
+        return err;
+    }
 
+    v4l2_i2c_subdev_init(priv->subdev, client, &ar0521_subdev_ops);
 
-	v4l2_i2c_subdev_init(priv->subdev, client, &ov5693_subdev_ops);
+    err = ar0521_ctrls_init(priv);
+    if (err)
+        return err;
 
-	/* eeprom interface */
-	err = ov5693_eeprom_device_init(priv);
-	if (err && priv->pdata->has_eeprom)
-		dev_err(&client->dev,
-			"Failed to allocate eeprom reg map: %d\n", err);
-
-	err = ov5693_ctrls_init(priv, !err);
-	if (err)
-		return err;
-
-	priv->subdev->internal_ops = &ov5693_subdev_internal_ops;
-	priv->subdev->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
-			       V4L2_SUBDEV_FL_HAS_EVENTS;
+    priv->subdev->internal_ops = &ar0521_subdev_internal_ops;
+    priv->subdev->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
+                           V4L2_SUBDEV_FL_HAS_EVENTS;
 
 #if defined(CONFIG_MEDIA_CONTROLLER)
-	priv->pad.flags = MEDIA_PAD_FL_SOURCE;
-	priv->subdev->entity.type = MEDIA_ENT_T_V4L2_SUBDEV_SENSOR;
-	priv->subdev->entity.ops = &ov5693_media_ops;
-	err = media_entity_init(&priv->subdev->entity, 1, &priv->pad, 0);
-	if (err < 0) {
-		dev_err(&client->dev, "unable to init media entity\n");
-		return err;
-	}
+    priv->pad.flags = MEDIA_PAD_FL_SOURCE;
+    priv->subdev->entity.type = MEDIA_ENT_T_V4L2_SUBDEV_SENSOR;
+    priv->subdev->entity.ops = &ar0521_media_ops;
+    err = media_entity_init(&priv->subdev->entity, 1, &priv->pad, 0);
+    if (err < 0) {
+        dev_err(&client->dev, "unable to init media entity\n");
+        return err;
+    }
 #endif
 
-	err = v4l2_async_register_subdev(priv->subdev);
-	if (err)
-		return err;
+    err = v4l2_async_register_subdev(priv->subdev);
+    if (err)
+        return err;
 
-	dev_dbg(&client->dev, "Detected OV5693 sensor\n");
+    dev_dbg(&client->dev, "Detected ar0521 sensor\n");
 
 
-	return 0;
+    return 0;
 }
 
 static int
-ov5693_remove(struct i2c_client *client)
+ar0521_remove(struct i2c_client *client)
 {
-	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
-	struct ov5693 *priv = (struct ov5693 *)s_data->priv;
+    struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+    struct ar0521 *priv = (struct ar0521 *)s_data->priv;
 
-	v4l2_async_unregister_subdev(priv->subdev);
+    v4l2_async_unregister_subdev(priv->subdev);
 #if defined(CONFIG_MEDIA_CONTROLLER)
-	media_entity_cleanup(&priv->subdev->entity);
+    media_entity_cleanup(&priv->subdev->entity);
 #endif
 
-	v4l2_ctrl_handler_free(&priv->ctrl_handler);
-	ov5693_power_put(priv);
-	camera_common_cleanup(s_data);
+    v4l2_ctrl_handler_free(&priv->ctrl_handler);
+    ar0521_power_put(priv);
+    camera_common_cleanup(s_data);
 
-	return 0;
+    return 0;
 }
 
-static const struct i2c_device_id ov5693_id[] = {
-	{ "ov5693", 0 },
-	{ }
+static const struct i2c_device_id ar0521_id[] = {
+    { "ar0521", 0 },
+    { }
 };
 
-MODULE_DEVICE_TABLE(i2c, ov5693_id);
+MODULE_DEVICE_TABLE(i2c, ar0521_id);
 
-static struct i2c_driver ov5693_i2c_driver = {
-	.driver = {
-		.name = "ov5693",
-		.owner = THIS_MODULE,
-		.of_match_table = of_match_ptr(ov5693_of_match),
-	},
-	.probe = ov5693_probe,
-	.remove = ov5693_remove,
-	.id_table = ov5693_id,
+static struct i2c_driver ar0521_i2c_driver = {
+    .driver = {
+        .name = "ar0521",
+        .owner = THIS_MODULE,
+        .of_match_table = of_match_ptr(ar0521_of_match),
+    },
+    .probe = ar0521_probe,
+    .remove = ar0521_remove,
+    .id_table = ar0521_id,
 };
 
-module_i2c_driver(ov5693_i2c_driver);
+module_i2c_driver(ar0521_i2c_driver);
 
-MODULE_DESCRIPTION("SoC Camera driver for Sony OV5693");
-MODULE_AUTHOR("David Wang <davidw@nvidia.com>");
+MODULE_DESCRIPTION("MIPI Camera driver for ar0521");
+MODULE_AUTHOR("Galaxy");
 MODULE_LICENSE("GPL v2");
 
